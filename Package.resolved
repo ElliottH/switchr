@@ -1,0 +1,15 @@
+{
+  "originHash" : "89c606b647acb5abc5259ba9080b9f7ae275885d300948e00a2a8ca86b301b37",
+  "pins" : [
+    {
+      "identity" : "fuzzymatch",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ordo-one/FuzzyMatch",
+      "state" : {
+        "revision" : "ea09aa7faa3c1832716d1ccdb81dcb83bea89774",
+        "version" : "1.4.0"
+      }
+    }
+  ],
+  "version" : 3
+}
