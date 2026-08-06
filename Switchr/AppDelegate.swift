@@ -2,14 +2,13 @@ import AppKit
 import ServiceManagement
 
 /// Menu bar shell, cloned from hypr (the event tap, menu bar app shape, and
-/// Login Items registration all transfer directly from that project). The
-/// CGEventTap itself and its Handler are the next piece — this just gets a
-/// launchable, signable `.app` up with the permission plumbing both the tap
-/// and the AX-based AppSource will need.
+/// Login Items registration all transfer directly from that project).
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var statusTimer: Timer?
     private var isAccessibilityGranted = false
+    private var hotkeyTap: HotkeyTap?
+    private var panel: PickerPanel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         isAccessibilityGranted = AXIsProcessTrusted()
@@ -17,8 +16,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registerLaunchAtLogin()
         if !isAccessibilityGranted {
             CGRequestPostEventAccess()
+        } else {
+            startEventTap()
         }
         startStatusPolling()
+    }
+
+    private func startEventTap() {
+        let tap = HotkeyTap { [weak self] in
+            self?.togglePanel()
+        }
+        guard tap.start() else { return }
+        hotkeyTap = tap
+    }
+
+    private func togglePanel() {
+        let panel = panel ?? {
+            let panel = PickerPanel()
+            self.panel = panel
+            return panel
+        }()
+
+        if panel.isVisible {
+            panel.hidePanel()
+            return
+        }
+
+        let activeBefore = NSApp.isActive
+        let frontmostBefore = NSWorkspace.shared.frontmostApplication?.localizedName ?? "none"
+        panel.showCentered()
+        print(
+            "[Switchr] panel shown — NSApp.isActive: \(activeBefore) -> \(NSApp.isActive), "
+                + "frontmost: \(frontmostBefore) -> \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "none")"
+        )
     }
 
     private func setupMenuBar() {
@@ -54,6 +84,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(loginItem)
         menu.addItem(.separator())
+        #if DEBUG
+        // Exercises the panel's non-activation without needing Accessibility
+        // permission granted or the real hotkey — see the log line in
+        // togglePanel() for the NSApp.isActive / frontmost-app assertion.
+        menu.addItem(NSMenuItem(title: "Show Picker (Debug)", action: #selector(debugShowPicker), keyEquivalent: ""))
+        menu.addItem(.separator())
+        #endif
         menu.addItem(NSMenuItem(title: "Quit Switchr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         statusItem?.menu = menu
@@ -78,6 +115,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 
+    #if DEBUG
+    @objc private func debugShowPicker() {
+        togglePanel()
+    }
+    #endif
+
     private func registerLaunchAtLogin() {
         if SMAppService.mainApp.status == .notRegistered {
             try? SMAppService.mainApp.register()
@@ -94,6 +137,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let newAccessibility = AXIsProcessTrusted()
         guard newAccessibility != isAccessibilityGranted else { return }
         isAccessibilityGranted = newAccessibility
+        // Accessibility permission is keyed to the code signature and can be
+        // granted after launch — `tapCreate` fails silently without it, so
+        // the tap has to be (re-)started once it's actually available.
+        if newAccessibility && hotkeyTap == nil {
+            startEventTap()
+        }
         updateStatusIcon()
         rebuildMenu()
     }
