@@ -1,4 +1,3 @@
-import Carbon.HIToolbox
 import Cocoa
 
 /// A non-activating panel that takes key input without deactivating the app
@@ -63,12 +62,12 @@ final class PickerPanel: NSPanel {
     // field never focuses.
     override var canBecomeKey: Bool { true }
 
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == kVK_Escape {
-            hidePanel()
-            return
-        }
-        super.keyDown(with: event)
+    // Escape reaches here, not keyDown(with:) — once the text field has
+    // focus, key events go to its field editor first, and cancelOperation(_:)
+    // is what Escape dispatches up the responder chain when the field editor
+    // doesn't handle it itself.
+    override func cancelOperation(_ sender: Any?) {
+        hidePanel()
     }
 
     func showCentered() {
@@ -86,5 +85,8 @@ final class PickerPanel: NSPanel {
 
     func hidePanel() {
         orderOut(nil)
+        // Each summon should start from a blank slate, not wherever the
+        // user left off last time.
+        textField.stringValue = ""
     }
 }

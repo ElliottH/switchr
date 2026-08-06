@@ -23,7 +23,15 @@ final class HotkeyTap {
 
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
+            // Tail, not head: a head-inserted tap always jumps to the front
+            // of the chain, ahead of taps installed earlier — so if another
+            // app's tap (e.g. a CapsLock-as-hyper remapper) transforms the
+            // event's modifier flags, a head-inserted tap here could see the
+            // event before that transformation happens, depending purely on
+            // which app launched more recently. Tail placement always sees
+            // events last, after every head-inserted tap has already run,
+            // regardless of launch order.
+            place: .tailAppendEventTap,
             options: .defaultTap,
             eventsOfInterest: mask,
             callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
