@@ -50,10 +50,18 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
         hasShadow = true
         hidesOnDeactivate = false
 
-        let container = NSView()
+        // NSVisualEffectView, not a plain NSView with a manually-set CALayer
+        // background color: a dynamic NSColor's `.cgColor` is a one-time
+        // snapshot that never updates again, so a hand-set layer color goes
+        // stale the moment the system's light/dark appearance changes after
+        // launch. The vibrancy material tracks appearance automatically.
+        let container = NSVisualEffectView()
+        container.material = .popover
+        container.blendingMode = .behindWindow
+        container.state = .active
         container.wantsLayer = true
         container.layer?.cornerRadius = 10
-        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        container.layer?.masksToBounds = true
 
         // A fixed-height row so the text field can be centered *within* it —
         // pinning the field itself to a tall area top-aligns its one line of
