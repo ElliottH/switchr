@@ -11,7 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		8B8F19A1F65942AD9D9AB815 /* switchr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = switchr.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B8F19A1F65942AD9D9AB815 /* switchr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = switchr.app; path = "switchr debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -34,20 +34,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		CD688C907F29424390F5AB4D = {
-			isa = PBXGroup;
-			children = (
-				678471D5DB97405C8256F026 /* switchr */,
-				0A4055A16C8F4E42999CFE11 /* Products */,
-			);
-			sourceTree = "<group>";
-		};
 		0A4055A16C8F4E42999CFE11 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				8B8F19A1F65942AD9D9AB815 /* switchr.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		CD688C907F29424390F5AB4D = {
+			isa = PBXGroup;
+			children = (
+				678471D5DB97405C8256F026 /* switchr */,
+				0A4055A16C8F4E42999CFE11 /* Products */,
+			);
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -157,6 +157,32 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		945541EB96D54CD4BD817B0D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = J3AL5V2Q4N;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = uk.thehillarys.elliott.switchr.debug;
+				PRODUCT_NAME = "switchr debug";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		C717489E287C4D778233C317 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -278,32 +304,6 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
-		};
-		945541EB96D54CD4BD817B0D /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = J3AL5V2Q4N;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = uk.thehillarys.elliott.switchr.debug;
-				PRODUCT_NAME = "switchr debug";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
 		};
 		F31E0A7963D642F98B3F180F /* Release */ = {
 			isa = XCBuildConfiguration;

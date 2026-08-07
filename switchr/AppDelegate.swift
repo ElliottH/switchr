@@ -3,12 +3,14 @@ import ServiceManagement
 
 /// Menu bar shell, cloned from hypr (the event tap, menu bar app shape, and
 /// Login Items registration all transfer directly from that project).
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var statusTimer: Timer?
     private var isAccessibilityGranted = false
     private var hotkeyTap: HotkeyTap?
-    private var panel: PickerPanel?
+    private let appSource = AXAppSource()
+    private lazy var pickerController = PickerController(appSource: appSource)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         isAccessibilityGranted = AXIsProcessTrusted()
@@ -31,22 +33,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func togglePanel() {
-        let panel = panel ?? {
-            let panel = PickerPanel()
-            self.panel = panel
-            return panel
-        }()
-
-        if panel.isVisible {
-            panel.hidePanel()
-            return
-        }
-
         let activeBefore = NSApp.isActive
         let frontmostBefore = NSWorkspace.shared.frontmostApplication?.localizedName ?? "none"
-        panel.showCentered()
+        pickerController.toggle()
         print(
-            "[switchr] panel shown — NSApp.isActive: \(activeBefore) -> \(NSApp.isActive), "
+            "[switchr] panel toggled — NSApp.isActive: \(activeBefore) -> \(NSApp.isActive), "
                 + "frontmost: \(frontmostBefore) -> \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "none")"
         )
     }
@@ -129,7 +120,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startStatusPolling() {
         statusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.pollStatus()
+            Task { @MainActor in
+                self?.pollStatus()
+            }
         }
     }
 

@@ -1,0 +1,164 @@
+import ApplicationServices
+import Cocoa
+import SwitchrCore
+
+/// Tier-0 discovery: running regular-activation-policy apps, each with its AX
+/// windows. `PickerItem.id` encodes `"pid:windowIndex"` rather than caching
+/// an `AXUIElement` handle, so nothing here needs to cross an actor or task
+/// boundary except plain value types — activation re-fetches the window list
+/// for the one app the user picked, which is cheap and avoids ever holding a
+/// stale AX reference.
+///
+/// Isolated to the main actor so the mutable MRU list is only ever touched
+/// from one place. Per-app AX enumeration itself still happens off-main, in
+/// parallel, inside the `nonisolated` `discoverWindows` — discovery fires
+/// from the tap-callback path, and a synchronous AX hang must never risk the
+/// tap's own timeout on main.
+@MainActor
+final class AXAppSource: AppSource {
+    private var mruBundleIDs: [String] = []
+    private var activationObserver: NSObjectProtocol?
+
+    init() {
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard
+                let self,
+                let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                let bundleID = app.bundleIdentifier
+            else { return }
+            Task { @MainActor in
+                self.mruBundleIDs.removeAll { $0 == bundleID }
+                self.mruBundleIDs.insert(bundleID, at: 0)
+            }
+        }
+    }
+
+    deinit {
+        if let activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
+        }
+    }
+
+    func runningApps() async -> [AppWithItems] {
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let candidates = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.processIdentifier != selfPID }
+            .map { (pid: $0.processIdentifier, bundleID: $0.bundleIdentifier, name: $0.localizedName) }
+
+        let discovered = await withTaskGroup(
+            of: (pid: pid_t, bundleID: String?, name: String?, items: [PickerItem]).self
+        ) { group in
+            for candidate in candidates {
+                group.addTask {
+                    let items = await Self.discoverWindows(pid: candidate.pid, fallbackName: candidate.name)
+                    return (candidate.pid, candidate.bundleID, candidate.name, items)
+                }
+            }
+            var results: [(pid: pid_t, bundleID: String?, name: String?, items: [PickerItem])] = []
+            for await result in group { results.append(result) }
+            return results
+        }
+
+        let withItems = discovered.filter { !$0.items.isEmpty }
+        // Stable sort preserves NSWorkspace's own order as the tiebreak for
+        // apps the MRU list doesn't (yet) mention.
+        let ranked = withItems.sorted { lhs, rhs in
+            let lhsRank = mruBundleIDs.firstIndex(of: lhs.bundleID ?? "") ?? Int.max
+            let rhsRank = mruBundleIDs.firstIndex(of: rhs.bundleID ?? "") ?? Int.max
+            return lhsRank < rhsRank
+        }
+
+        return ranked.map { entry in
+            AppWithItems(
+                app: RunningApp(id: entry.bundleID ?? String(entry.pid), name: entry.name ?? "Unknown"),
+                items: entry.items
+            )
+        }
+    }
+
+    /// Raises `app`'s frontmost window without picking a specific one.
+    func activate(app: RunningApp) {
+        guard let pid = pid(forAppID: app.id) else { return }
+        NSRunningApplication(processIdentifier: pid)?.activate()
+    }
+
+    /// Raises the specific window backing `item`, unminimising first if
+    /// needed — activation is more than `AXRaise`.
+    func activate(item: PickerItem, in app: RunningApp) {
+        guard
+            let pid = pid(forAppID: app.id),
+            let (windowPID, index) = Self.parseItemID(item.id),
+            windowPID == pid
+        else {
+            activate(app: app)
+            return
+        }
+
+        let appElement = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+            let windows = windowsRef as? [AXUIElement],
+            windows.indices.contains(index)
+        else {
+            activate(app: app)
+            return
+        }
+
+        let window = windows[index]
+        AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        NSRunningApplication(processIdentifier: pid)?.activate()
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+    }
+
+    private func pid(forAppID id: String) -> pid_t? {
+        if let pid = pid_t(id) {
+            return pid
+        }
+        return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == id }?.processIdentifier
+    }
+
+    private static func parseItemID(_ id: String) -> (pid: pid_t, index: Int)? {
+        let parts = id.split(separator: ":")
+        guard parts.count == 2, let pid = pid_t(parts[0]), let index = Int(parts[1]) else {
+            return nil
+        }
+        return (pid, index)
+    }
+
+    /// AX calls are synchronous IPC and can hang; `AXUIElementSetMessagingTimeout`
+    /// is what actually makes a wedged call return with an error instead of
+    /// blocking the thread forever — the `withDeadline` wrapper only races
+    /// cooperative `async` work, so it can't rescue a stuck syscall on its own.
+    private static func discoverWindows(pid: pid_t, fallbackName: String?) async -> [PickerItem] {
+        await withDeadline(0.15) {
+            let element = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(element, 150)
+
+            var windowsRef: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &windowsRef)
+            guard result == .success, let windows = windowsRef as? [AXUIElement] else {
+                return []
+            }
+
+            var items: [PickerItem] = []
+            for (index, window) in windows.enumerated() {
+                var titleRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
+                let title = (titleRef as? String) ?? fallbackName ?? "Untitled"
+                guard !title.isEmpty else { continue }
+
+                var documentRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(window, kAXDocumentAttribute as CFString, &documentRef)
+                let document = documentRef as? String
+
+                items.append(PickerItem(id: "\(pid):\(index)", title: title, secondaryText: document))
+            }
+            return items
+        } ?? []
+    }
+}
