@@ -86,104 +86,30 @@ final class AXAppSource: AppSource {
         NSRunningApplication(processIdentifier: pid)?.activate()
     }
 
-    /// Raises the specific window (and, for a Tier-2 tab item, presses the
-    /// specific tab) backing `item`, unminimising first if needed —
-    /// activation is more than `AXRaise`.
+    /// Raises the specific Tier-0 window backing `item`, unminimising first
+    /// if needed — activation is more than `AXRaise`. Tier-2 tab items
+    /// (`"pid:windowIndex:tab:tabIndex"`) are `AXTabWindowSource`'s to
+    /// activate, not this type's — by the time a caller falls back to this
+    /// method, every `WindowSource` in the registry has already declined the
+    /// item, so this only ever needs to understand its own plain-window id
+    /// shape.
     func activate(item: PickerItem, in app: RunningApp) {
         guard
             let pid = resolvePID(forAppID: app.id),
-            let target = Self.parseItemID(item.id)
+            let target = Self.parseWindowItemID(item.id),
+            target.pid == pid,
+            let window = axWindow(forPID: pid, index: target.windowIndex)
         else {
             activate(app: app)
             return
         }
-
-        switch target {
-        case .window(let windowPID, let windowIndex):
-            guard windowPID == pid, let window = Self.window(forPID: pid, index: windowIndex) else {
-                activate(app: app)
-                return
-            }
-            Self.raise(window: window, pid: pid)
-
-        case .tab(let windowPID, let windowIndex, let tabIndex):
-            guard windowPID == pid, let window = Self.window(forPID: pid, index: windowIndex) else {
-                activate(app: app)
-                return
-            }
-            Self.raise(window: window, pid: pid)
-
-            guard let tabGroup = findTabGroup(in: window, remainingDepth: 6) else { return }
-            var childrenRef: CFTypeRef?
-            AXUIElementCopyAttributeValue(tabGroup, kAXChildrenAttribute as CFString, &childrenRef)
-            guard let tabs = childrenRef as? [AXUIElement] else { return }
-            guard let target = Self.tab(in: tabs, matchingTitle: item.title, fallbackIndex: tabIndex) else { return }
-            AXUIElementPerformAction(target, kAXPressAction as CFString)
-        }
+        raiseAXWindow(window, pid: pid)
     }
 
-    private enum ItemTarget {
-        case window(pid: pid_t, windowIndex: Int)
-        case tab(pid: pid_t, windowIndex: Int, tabIndex: Int)
-    }
-
-    private static func parseItemID(_ id: String) -> ItemTarget? {
+    private static func parseWindowItemID(_ id: String) -> (pid: pid_t, windowIndex: Int)? {
         let parts = id.split(separator: ":")
-        switch parts.count {
-        case 2:
-            guard let pid = pid_t(parts[0]), let index = Int(parts[1]) else { return nil }
-            return .window(pid: pid, windowIndex: index)
-        case 4 where parts[2] == "tab":
-            guard let pid = pid_t(parts[0]), let windowIndex = Int(parts[1]), let tabIndex = Int(parts[3]) else {
-                return nil
-            }
-            return .tab(pid: pid, windowIndex: windowIndex, tabIndex: tabIndex)
-        default:
-            return nil
-        }
-    }
-
-    private static func window(forPID pid: pid_t, index: Int) -> AXUIElement? {
-        let appElement = AXUIElementCreateApplication(pid)
-        var windowsRef: CFTypeRef?
-        guard
-            AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-            let windows = windowsRef as? [AXUIElement],
-            windows.indices.contains(index)
-        else {
-            return nil
-        }
-        return windows[index]
-    }
-
-    /// Tab order can change between the picker loading and Enter being
-    /// pressed (a tab closed or reordered), so the index captured when the
-    /// item list was built may no longer point at the tab the user picked.
-    /// Trust the stale index first if its title still matches — the
-    /// strongest signal, and the only one immune to duplicate titles when
-    /// nothing actually moved — and only fall back to a title scan (which
-    /// can't disambiguate duplicates) if the index is gone or its title
-    /// changed out from under it.
-    private static func tab(in tabs: [AXUIElement], matchingTitle title: String, fallbackIndex: Int) -> AXUIElement? {
-        if tabs.indices.contains(fallbackIndex), tabTitle(tabs[fallbackIndex]) == title {
-            return tabs[fallbackIndex]
-        }
-        if let match = tabs.first(where: { tabTitle($0) == title }) {
-            return match
-        }
-        return tabs.indices.contains(fallbackIndex) ? tabs[fallbackIndex] : nil
-    }
-
-    private static func tabTitle(_ tab: AXUIElement) -> String? {
-        var titleRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(tab, kAXTitleAttribute as CFString, &titleRef)
-        return titleRef as? String
-    }
-
-    private static func raise(window: AXUIElement, pid: pid_t) {
-        AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-        NSRunningApplication(processIdentifier: pid)?.activate()
-        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        guard parts.count == 2, let pid = pid_t(parts[0]), let windowIndex = Int(parts[1]) else { return nil }
+        return (pid, windowIndex)
     }
 
     /// AX calls are synchronous IPC and can hang; `AXUIElementSetMessagingTimeout`

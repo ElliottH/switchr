@@ -24,6 +24,13 @@ final class PickerController: PickerPanelDelegate {
     private let chromeSource = ChromeWindowSource()
     private let itermSource = ITermWindowSource()
     private let genericSource: WindowSource = AXTabWindowSource()
+    /// The one registry backing every provider-dispatch decision: which
+    /// source's `items(for:)` to query, whether an app has a rich Tier-1
+    /// provider (vs falling to the generic AX walker), and the
+    /// `activate(item:)` try-chain. Ordered by specificity — Chrome/iTerm
+    /// claim only their own bundle ID; the generic walker is the catch-all,
+    /// so it must stay last.
+    private let windowSources: [WindowSource]
     private let matcher: Matcher = FuzzyMatchMatcher()
     private var state: PickerState?
     /// Whether the current scoped-hotkey hold has actually cycled the
@@ -45,6 +52,7 @@ final class PickerController: PickerPanelDelegate {
 
     init(appSource: AXAppSource) {
         self.appSource = appSource
+        self.windowSources = [chromeSource, itermSource, genericSource]
         panel.pickerDelegate = self
     }
 
@@ -123,8 +131,11 @@ final class PickerController: PickerPanelDelegate {
         // window with no native tabs of its own was never going to become
         // more than one candidate, and showing a one-row picker just to
         // make the user confirm a choice that isn't one is the papercut
-        // this skips.
-        let hasTabProvider = targetBundleID == ChromeWindowSource.bundleID || targetBundleID == ITermWindowSource.bundleID
+        // this skips. `AXTabWindowSource` is the registry's fallback by
+        // construction (last in `windowSources`, `owns` unconditionally) —
+        // it's the one concrete type this check needs to name, since it's
+        // the only source with no bundle ID of its own to key off instead.
+        let hasTabProvider = !(windowSource(for: targetBundleID) is AXTabWindowSource)
         if hasTabProvider {
             panel.showCentered()
             panel.setResults(titles: [], selectedIndex: 0)
@@ -140,7 +151,7 @@ final class PickerController: PickerPanelDelegate {
             }
 
             if !hasTabProvider, entry.items.count == 1 {
-                let tabs = await self.genericSource.items(for: entry.app)
+                let tabs = await self.windowSource(for: targetBundleID).items(for: entry.app)
                 guard self.presentationGeneration == generation else { return }
                 if tabs.isEmpty {
                     self.appSource.activate(item: entry.items[0], in: entry.app)
@@ -219,13 +230,10 @@ final class PickerController: PickerPanelDelegate {
     }
 
     /// Chrome and iTerm2 get their Apple Events sources; everything else
-    /// falls through to the generic AX tab-group walker.
-    private func windowSource(for app: RunningApp) -> WindowSource {
-        switch app.id {
-        case ChromeWindowSource.bundleID: return chromeSource
-        case ITermWindowSource.bundleID: return itermSource
-        default: return genericSource
-        }
+    /// falls through to the generic AX tab-group walker, which owns every
+    /// `appID` as the registry's catch-all.
+    private func windowSource(for appID: String) -> WindowSource {
+        windowSources.first { $0.owns(appID: appID) } ?? genericSource
     }
 
     private func handle(_ effect: PickerEffect) {
@@ -233,7 +241,7 @@ final class PickerController: PickerPanelDelegate {
         case .loadItems(let app):
             Task { [weak self] in
                 guard let self else { return }
-                let items = await self.windowSource(for: app).items(for: app)
+                let items = await self.windowSource(for: app.id).items(for: app)
                 guard !items.isEmpty else { return }
                 self.send(.itemsLoaded(items, for: app))
             }
@@ -252,15 +260,18 @@ final class PickerController: PickerPanelDelegate {
 
     /// Dispatches by the item id's own shape rather than `app.id`: a scoped
     /// app's item list is mixed-provenance (Tier-0 AX window rows alongside
-    /// Tier-1 Apple Events rows), since Chrome/iTerm sources deliberately
-    /// omit the active tab/session and leave its row to Tier-0. Each
-    /// activator recognizes only its own id shape and returns `false`
-    /// immediately otherwise, so trying them in sequence costs nothing extra
-    /// for ids it doesn't own.
+    /// Tier-1/2 rows from a `WindowSource`), since Chrome/iTerm/the generic
+    /// AX walker deliberately omit the active tab/session and leave its row
+    /// to Tier-0. Each source in the registry recognizes only its own id
+    /// shape and returns `false` immediately otherwise, so trying them in
+    /// sequence costs nothing extra for ids it doesn't own. `appSource` is
+    /// the final fallback for the one shape no `WindowSource` produces: a
+    /// plain Tier-0 window id.
     private func activate(item: PickerItem, in app: RunningApp) {
-        Task { [chromeSource, itermSource, appSource] in
-            if await chromeSource.activate(item: item) { return }
-            if await itermSource.activate(item: item) { return }
+        Task { [windowSources, appSource] in
+            for source in windowSources {
+                if await source.activate(item: item) { return }
+            }
             appSource.activate(item: item, in: app)
         }
     }

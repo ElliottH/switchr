@@ -1,4 +1,29 @@
 import ApplicationServices
+import AppKit
+
+/// Fetches `pid`'s window at `index` fresh via AX every call — window lists
+/// are never cached across the picker's item-list lifetime, since windows
+/// can close or reorder between discovery and activation.
+func axWindow(forPID pid: pid_t, index: Int) -> AXUIElement? {
+    let appElement = AXUIElementCreateApplication(pid)
+    var windowsRef: CFTypeRef?
+    guard
+        AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+        let windows = windowsRef as? [AXUIElement],
+        windows.indices.contains(index)
+    else {
+        return nil
+    }
+    return windows[index]
+}
+
+/// Unminimises and raises `window`, activating its owning app — activation
+/// is more than `AXRaise` alone.
+func raiseAXWindow(_ window: AXUIElement, pid: pid_t) {
+    AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+    NSRunningApplication(processIdentifier: pid)?.activate()
+    AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+}
 
 /// Shallow bounded-depth search for the first `AXTabGroup` descendant of
 /// `element`. Shared between the tab walker (discovery) and activation

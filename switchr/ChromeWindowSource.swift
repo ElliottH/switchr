@@ -21,8 +21,10 @@ import SwitchrCore
 final class ChromeWindowSource: WindowSource {
     static let bundleID = "com.google.Chrome"
 
+    func owns(appID: String) -> Bool { appID == Self.bundleID }
+
     func items(for app: RunningApp) async -> [PickerItem] {
-        guard app.id == Self.bundleID else { return [] }
+        guard owns(appID: app.id) else { return [] }
         guard let output = await AppleScriptRunner.run(Self.discoverySource) else { return [] }
         return Self.parse(output)
     }
