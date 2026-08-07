@@ -10,7 +10,9 @@ import SwitchrCore
 final class PickerController: PickerPanelDelegate {
     private let panel = PickerPanel()
     private let appSource: AXAppSource
-    private let windowSource: WindowSource = AXTabWindowSource()
+    private let chromeSource = ChromeWindowSource()
+    private let itermSource = ITermWindowSource()
+    private let genericSource: WindowSource = AXTabWindowSource()
     private let matcher: Matcher = FuzzyMatchMatcher()
     private var state: PickerState?
 
@@ -88,12 +90,22 @@ final class PickerController: PickerPanelDelegate {
         if let outcome { handle(outcome) }
     }
 
+    /// Chrome and iTerm2 get their Apple Events sources; everything else
+    /// falls through to the generic AX tab-group walker.
+    private func windowSource(for app: RunningApp) -> WindowSource {
+        switch app.id {
+        case ChromeWindowSource.bundleID: return chromeSource
+        case ITermWindowSource.bundleID: return itermSource
+        default: return genericSource
+        }
+    }
+
     private func handle(_ effect: PickerEffect) {
         switch effect {
         case .loadItems(let app):
             Task { [weak self] in
                 guard let self else { return }
-                let items = await self.windowSource.items(for: app)
+                let items = await self.windowSource(for: app).items(for: app)
                 guard !items.isEmpty else { return }
                 self.send(.itemsLoaded(items))
             }
@@ -105,9 +117,24 @@ final class PickerController: PickerPanelDelegate {
         case .activateApp(let app):
             appSource.activate(app: app)
         case .activateItem(let item, let app):
-            appSource.activate(item: item, in: app)
+            activate(item: item, in: app)
         }
         dismiss()
+    }
+
+    /// Dispatches by the item id's own shape rather than `app.id`: a scoped
+    /// app's item list is mixed-provenance (Tier-0 AX window rows alongside
+    /// Tier-1 Apple Events rows), since Chrome/iTerm sources deliberately
+    /// omit the active tab/session and leave its row to Tier-0. Each
+    /// activator recognizes only its own id shape and returns `false`
+    /// immediately otherwise, so trying them in sequence costs nothing extra
+    /// for ids it doesn't own.
+    private func activate(item: PickerItem, in app: RunningApp) {
+        Task { [chromeSource, itermSource, appSource] in
+            if await chromeSource.activate(item: item) { return }
+            if await itermSource.activate(item: item) { return }
+            appSource.activate(item: item, in: app)
+        }
     }
 
     // MARK: - PickerPanelDelegate
