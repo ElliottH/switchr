@@ -36,8 +36,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func defaultHotkeys() -> [RegisteredHotkey] {
-        guard let keyCode = KeyCodeMap.keyCode(forName: "space") else { return [] }
-        let modifierMask = KeyCodeMap.modifierFlags(forNames: ["command", "option", "control", "shift"])
+        guard let keyCode = KeyCodeMap.keyCode(forName: "space"),
+              let modifierMask = KeyCodeMap.modifierFlags(forNames: ["command", "option", "control", "shift"])
+        else { return [] }
         return [RegisteredHotkey(keyCode: keyCode, modifierMask: modifierMask, onPress: { [weak self] in
             self?.togglePanel()
         })]

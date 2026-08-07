@@ -29,7 +29,10 @@ enum KeyCodeMap {
         keyCodesByName[name.lowercased()]
     }
 
-    static func modifierFlags(forNames names: Set<String>) -> CGEventFlags {
+    /// `nil` if any name in `names` isn't a recognized modifier — an
+    /// unrecognized name changes what chord the user thinks they configured,
+    /// so the whole binding must be rejected rather than silently narrowed.
+    static func modifierFlags(forNames names: Set<String>) -> CGEventFlags? {
         var flags: CGEventFlags = []
         for name in names {
             switch name.lowercased() {
@@ -37,7 +40,7 @@ enum KeyCodeMap {
             case "option", "alt": flags.insert(.maskAlternate)
             case "control", "ctrl": flags.insert(.maskControl)
             case "shift": flags.insert(.maskShift)
-            default: continue
+            default: return nil
             }
         }
         return flags
@@ -58,13 +61,13 @@ enum HotkeyConfigLoader {
         return HotkeyConfigParser.parse(text)
     }
 
-    /// Unresolvable entries (an unknown key name) are dropped rather than
-    /// failing the whole config — one typo in a scoped hotkey shouldn't cost
-    /// the user every other binding.
+    /// Unresolvable entries (an unknown key or modifier name) are dropped
+    /// rather than failing the whole config — one typo in a scoped hotkey
+    /// shouldn't cost the user every other binding.
     static func buildHotkeys(from bindings: [HotkeyBinding], pickerController: PickerController) -> [RegisteredHotkey] {
         bindings.compactMap { binding in
             guard let keyCode = KeyCodeMap.keyCode(forName: binding.key) else { return nil }
-            let modifierMask = KeyCodeMap.modifierFlags(forNames: binding.modifiers)
+            guard let modifierMask = KeyCodeMap.modifierFlags(forNames: binding.modifiers) else { return nil }
             let scope: HotkeyScope = {
                 switch binding.scope {
                 case .global: return .global
