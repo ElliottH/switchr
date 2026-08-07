@@ -89,7 +89,27 @@ public enum HotkeyConfigParser {
     private static func parseStringArray(_ text: String) -> [String] {
         guard text.hasPrefix("["), text.hasSuffix("]") else { return [] }
         let inner = text.dropFirst().dropLast()
-        return inner.split(separator: ",").compactMap { parseString($0.trimmingCharacters(in: .whitespaces)) }
+        return splitTopLevel(inner, on: ",").compactMap { parseString($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    /// Splits on `separator` only outside quoted strings, so a quoted value
+    /// containing the separator (e.g. a bundle ID with a comma in it)
+    /// survives intact instead of being corrupted mid-token.
+    private static func splitTopLevel(_ text: Substring, on separator: Character) -> [Substring] {
+        var fields: [Substring] = []
+        var fieldStart = text.startIndex
+        var inQuotes = false
+        for index in text.indices {
+            let char = text[index]
+            if char == "\"" {
+                inQuotes.toggle()
+            } else if char == separator && !inQuotes {
+                fields.append(text[fieldStart..<index])
+                fieldStart = text.index(after: index)
+            }
+        }
+        fields.append(text[fieldStart...])
+        return fields
     }
 
     /// `"global"` or `{ apps = [...] }` — the only two scope shapes the

@@ -98,4 +98,20 @@ struct HotkeyConfigParserTests {
     func emptyInputProducesNoBindings() {
         #expect(HotkeyConfigParser.parse("").isEmpty)
     }
+
+    @Test
+    func quotedCommaInsideAnArrayElementDoesNotSplitTheElement() {
+        let text = """
+        [[hotkey]]
+        key = "v"
+        modifiers = ["command"]
+        scope = { apps = ["com.foo,bar", "com.baz"] }
+        """
+
+        let bindings = HotkeyConfigParser.parse(text)
+
+        #expect(bindings == [
+            HotkeyBinding(key: "v", modifiers: ["command"], scope: .apps(["com.foo,bar", "com.baz"]))
+        ])
+    }
 }
