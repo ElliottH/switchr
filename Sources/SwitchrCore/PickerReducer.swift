@@ -38,8 +38,10 @@ public enum PickerAction: Equatable, Sendable {
     /// reachable by cursor/arrow-key navigation — backspace is the one way
     /// out.
     case backspaceAtStart
-    /// Tier 1-3 results for the currently-scoped app arriving asynchronously.
-    case itemsLoaded([PickerItem])
+    /// Tier 1-3 results arriving asynchronously for the app they were
+    /// requested for — tagged so a late arrival can be dropped if the user
+    /// has already re-scoped to a different app in the meantime.
+    case itemsLoaded([PickerItem], for: RunningApp)
     case moveSelection(by: Int)
     case activateSelection
     /// A scoped hotkey committing straight to stage two, bypassing the
@@ -77,8 +79,8 @@ public enum PickerReducer {
             handleBackspaceAtStart(state: &state, matcher: matcher)
             return (nil, nil)
 
-        case .itemsLoaded(let items):
-            handleItemsLoaded(items, state: &state, matcher: matcher)
+        case .itemsLoaded(let items, let app):
+            handleItemsLoaded(items, for: app, state: &state, matcher: matcher)
             return (nil, nil)
 
         case .moveSelection(let delta):
@@ -187,10 +189,11 @@ public enum PickerReducer {
 
     private static func handleItemsLoaded(
         _ items: [PickerItem],
+        for app: RunningApp,
         state: inout PickerState,
         matcher: Matcher
     ) {
-        guard case .scoped = state.stage else { return }
+        guard case .scoped(let scopedApp) = state.stage, scopedApp.id == app.id else { return }
         let existingIDs = Set(state.scopedItems.map(\.id))
         state.scopedItems.append(contentsOf: items.filter { !existingIDs.contains($0.id) })
 

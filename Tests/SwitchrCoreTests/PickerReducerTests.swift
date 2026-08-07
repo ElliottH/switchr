@@ -241,7 +241,7 @@ struct PickerReducerTests {
 
         let newTab = PickerItem(id: "chrome-3", title: "Inbox - Gmail")
         let duplicate = PickerItem(id: "chrome-1", title: "YouTube - Chill Lofi (stale title)")
-        _ = PickerReducer.reduce(state: &state, action: .itemsLoaded([newTab, duplicate]), matcher: matcher)
+        _ = PickerReducer.reduce(state: &state, action: .itemsLoaded([newTab, duplicate], for: chromeApp), matcher: matcher)
 
         #expect(state.scopedItems.count == 3)
         #expect(state.scopedItems.first(where: { $0.id == "chrome-1" })?.title == "YouTube - Chill Lofi")
@@ -261,7 +261,7 @@ struct PickerReducerTests {
         // A newly-arrived tab ("Gmail", i at index 3) scores between the two
         // existing items, inserting ahead of the highlighted one.
         let newTab = PickerItem(id: "chrome-3", title: "Gmail")
-        _ = PickerReducer.reduce(state: &state, action: .itemsLoaded([newTab]), matcher: matcher)
+        _ = PickerReducer.reduce(state: &state, action: .itemsLoaded([newTab], for: chromeApp), matcher: matcher)
 
         #expect(state.rankedIDs == ["chrome-2", "chrome-3", "chrome-1"])
         #expect(state.rankedIDs[state.selectedIndex] == "chrome-1")
@@ -270,8 +270,21 @@ struct PickerReducerTests {
     @Test
     func itemsLoadedIsNoOpOutsideScopedStage() {
         var state = makeState()
-        _ = PickerReducer.reduce(state: &state, action: .itemsLoaded([PickerItem(id: "x", title: "x")]), matcher: matcher)
+        _ = PickerReducer.reduce(state: &state, action: .itemsLoaded([PickerItem(id: "x", title: "x")], for: chromeApp), matcher: matcher)
         #expect(state.scopedItems.isEmpty)
+    }
+
+    @Test
+    func itemsLoadedForAStaleAppIsDroppedAfterRescoping() {
+        var state = makeState()
+        _ = PickerReducer.reduce(state: &state, action: .scopeToApp(chromeApp), matcher: matcher)
+        _ = PickerReducer.reduce(state: &state, action: .scopeToApp(slackApp), matcher: matcher)
+
+        let staleChromeTab = PickerItem(id: "chrome-3", title: "Inbox - Gmail")
+        _ = PickerReducer.reduce(state: &state, action: .itemsLoaded([staleChromeTab], for: chromeApp), matcher: matcher)
+
+        #expect(state.stage == .scoped(slackApp))
+        #expect(state.scopedItems.contains(where: { $0.id == "chrome-3" }) == false)
     }
 
     @Test

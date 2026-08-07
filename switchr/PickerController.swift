@@ -214,7 +214,7 @@ final class PickerController: PickerPanelDelegate {
                 guard let self else { return }
                 let items = await self.windowSource(for: app).items(for: app)
                 guard !items.isEmpty else { return }
-                self.send(.itemsLoaded(items))
+                self.send(.itemsLoaded(items, for: app))
             }
         }
     }
