@@ -101,6 +101,7 @@ final class PickerController: PickerPanelDelegate {
         guard let targetBundleID = bundleIDs.first(where: { id in running.contains { $0.bundleIdentifier == id } })
         else {
             if let fallback = bundleIDs.first { launchApp(bundleID: fallback) }
+            dismiss()
             return
         }
 
@@ -131,6 +132,7 @@ final class PickerController: PickerPanelDelegate {
                 let tabs = await self.genericSource.items(for: entry.app)
                 if tabs.isEmpty {
                     self.appSource.activate(item: entry.items[0], in: entry.app)
+                    self.dismiss()
                     return
                 }
             }
