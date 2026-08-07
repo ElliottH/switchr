@@ -10,7 +10,7 @@ import SwitchrCore
 final class PickerController: PickerPanelDelegate {
     private let panel = PickerPanel()
     private let appSource: AXAppSource
-    private let windowSource: WindowSource = StubWindowSource()
+    private let windowSource: WindowSource = AXTabWindowSource()
     private let matcher: Matcher = FuzzyMatchMatcher()
     private var state: PickerState?
 

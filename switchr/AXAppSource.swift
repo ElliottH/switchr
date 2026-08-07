@@ -82,22 +82,67 @@ final class AXAppSource: AppSource {
 
     /// Raises `app`'s frontmost window without picking a specific one.
     func activate(app: RunningApp) {
-        guard let pid = pid(forAppID: app.id) else { return }
+        guard let pid = resolvePID(forAppID: app.id) else { return }
         NSRunningApplication(processIdentifier: pid)?.activate()
     }
 
-    /// Raises the specific window backing `item`, unminimising first if
-    /// needed — activation is more than `AXRaise`.
+    /// Raises the specific window (and, for a Tier-2 tab item, presses the
+    /// specific tab) backing `item`, unminimising first if needed —
+    /// activation is more than `AXRaise`.
     func activate(item: PickerItem, in app: RunningApp) {
         guard
-            let pid = pid(forAppID: app.id),
-            let (windowPID, index) = Self.parseItemID(item.id),
-            windowPID == pid
+            let pid = resolvePID(forAppID: app.id),
+            let target = Self.parseItemID(item.id)
         else {
             activate(app: app)
             return
         }
 
+        switch target {
+        case .window(let windowPID, let windowIndex):
+            guard windowPID == pid, let window = Self.window(forPID: pid, index: windowIndex) else {
+                activate(app: app)
+                return
+            }
+            Self.raise(window: window, pid: pid)
+
+        case .tab(let windowPID, let windowIndex, let tabIndex):
+            guard windowPID == pid, let window = Self.window(forPID: pid, index: windowIndex) else {
+                activate(app: app)
+                return
+            }
+            Self.raise(window: window, pid: pid)
+
+            guard let tabGroup = findTabGroup(in: window, remainingDepth: 6) else { return }
+            var childrenRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(tabGroup, kAXChildrenAttribute as CFString, &childrenRef)
+            guard let tabs = childrenRef as? [AXUIElement], tabs.indices.contains(tabIndex) else { return }
+            AXUIElementPerformAction(tabs[tabIndex], kAXPressAction as CFString)
+        }
+    }
+
+    private enum ItemTarget {
+        case window(pid: pid_t, windowIndex: Int)
+        case tab(pid: pid_t, windowIndex: Int, tabIndex: Int)
+    }
+
+    private static func parseItemID(_ id: String) -> ItemTarget? {
+        let parts = id.split(separator: ":")
+        switch parts.count {
+        case 2:
+            guard let pid = pid_t(parts[0]), let index = Int(parts[1]) else { return nil }
+            return .window(pid: pid, windowIndex: index)
+        case 4 where parts[2] == "tab":
+            guard let pid = pid_t(parts[0]), let windowIndex = Int(parts[1]), let tabIndex = Int(parts[3]) else {
+                return nil
+            }
+            return .tab(pid: pid, windowIndex: windowIndex, tabIndex: tabIndex)
+        default:
+            return nil
+        }
+    }
+
+    private static func window(forPID pid: pid_t, index: Int) -> AXUIElement? {
         let appElement = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         guard
@@ -105,29 +150,15 @@ final class AXAppSource: AppSource {
             let windows = windowsRef as? [AXUIElement],
             windows.indices.contains(index)
         else {
-            activate(app: app)
-            return
+            return nil
         }
+        return windows[index]
+    }
 
-        let window = windows[index]
+    private static func raise(window: AXUIElement, pid: pid_t) {
         AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         NSRunningApplication(processIdentifier: pid)?.activate()
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-    }
-
-    private func pid(forAppID id: String) -> pid_t? {
-        if let pid = pid_t(id) {
-            return pid
-        }
-        return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == id }?.processIdentifier
-    }
-
-    private static func parseItemID(_ id: String) -> (pid: pid_t, index: Int)? {
-        let parts = id.split(separator: ":")
-        guard parts.count == 2, let pid = pid_t(parts[0]), let index = Int(parts[1]) else {
-            return nil
-        }
-        return (pid, index)
     }
 
     /// AX calls are synchronous IPC and can hang; `AXUIElementSetMessagingTimeout`
