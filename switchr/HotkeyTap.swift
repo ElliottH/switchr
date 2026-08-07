@@ -102,6 +102,15 @@ final class HotkeyTap {
                 return Unmanaged.passUnretained(event)
             }
 
+            // OS-generated key-repeat while the chord is held — the original
+            // press already consumed this key, so keep consuming (return
+            // nil) but skip re-dispatching onPress, or holding the chord
+            // would flicker the global toggle / run away past a single
+            // deliberate tap on a scoped cycle.
+            guard event.getIntegerValueField(.keyboardEventAutorepeat) == 0 else {
+                return nil
+            }
+
             if hotkey.onRelease != nil {
                 armedHotkeys[hotkey.keyCode] = hotkey
             }
