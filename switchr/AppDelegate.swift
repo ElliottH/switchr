@@ -25,11 +25,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func startEventTap() {
-        let tap = HotkeyTap { [weak self] in
-            self?.togglePanel()
-        }
+        let bindings = HotkeyConfigLoader.loadBindings()
+        // No config file, or one with no valid entries: the one hardcoded
+        // hyper+space global hotkey this app has always shipped with.
+        let hotkeys = bindings.isEmpty
+            ? defaultHotkeys()
+            : HotkeyConfigLoader.buildHotkeys(from: bindings, pickerController: pickerController)
+        let tap = HotkeyTap(hotkeys: hotkeys)
         guard tap.start() else { return }
         hotkeyTap = tap
+    }
+
+    private func defaultHotkeys() -> [RegisteredHotkey] {
+        guard let keyCode = KeyCodeMap.keyCode(forName: "space") else { return [] }
+        let modifierMask = KeyCodeMap.modifierFlags(forNames: ["command", "option", "control", "shift"])
+        return [RegisteredHotkey(keyCode: keyCode, modifierMask: modifierMask, onPress: { [weak self] in
+            self?.togglePanel()
+        })]
     }
 
     private func togglePanel() {

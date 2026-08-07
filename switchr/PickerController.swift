@@ -1,6 +1,17 @@
 import Cocoa
 import SwitchrCore
 
+/// What a fired hotkey chord is bound to — the same shape as
+/// `HotkeyBinding.Scope`. `.apps` is resolved at press time to whichever
+/// listed bundle ID is actually running (first match in list order); a
+/// single physical chord can only ever target one app per press, so this
+/// stays one `RegisteredHotkey` per config entry rather than one per bundle
+/// ID, which would leave multiple registrations racing for the same chord.
+enum HotkeyScope: Equatable {
+    case global
+    case apps([String])
+}
+
 /// Mediates between the (dumb) `PickerPanel` view and the pure
 /// `PickerReducer`: turns panel delegate callbacks into `PickerAction`s,
 /// renders the resulting `rankedIDs` back as titles, and performs the
@@ -15,6 +26,15 @@ final class PickerController: PickerPanelDelegate {
     private let genericSource: WindowSource = AXTabWindowSource()
     private let matcher: Matcher = FuzzyMatchMatcher()
     private var state: PickerState?
+    /// Whether the current scoped-hotkey hold has actually cycled the
+    /// selection yet. A quick tap-and-release opens the picker and leaves it
+    /// open for typing, same as before scoped hotkeys existed — only once
+    /// the chord fires a *second* time while already scoped does a held
+    /// session start, and only then does releasing the modifier commit.
+    /// Without this, a plain quick tap (press+release close enough together
+    /// that the modifier's release always follows) would commit the
+    /// top-ranked item immediately and never leave the picker open at all.
+    private var isHotkeyHeldSession = false
 
     init(appSource: AXAppSource) {
         self.appSource = appSource
@@ -31,6 +51,35 @@ final class PickerController: PickerPanelDelegate {
         }
     }
 
+    /// A hotkey chord firing. For `.global` this is just the existing
+    /// toggle. For `.app`, the doc's "hold modifier, tap to cycle" behaviour
+    /// means a *repeat* press while already scoped to that same app advances
+    /// the selection instead of re-presenting from scratch.
+    func hotkeyPressed(scope: HotkeyScope) {
+        switch scope {
+        case .global:
+            toggle()
+        case .apps(let bundleIDs):
+            if panel.isVisible, case .scoped(let app) = state?.stage, bundleIDs.contains(app.id) {
+                isHotkeyHeldSession = true
+                send(.moveSelection(by: 1))
+            } else {
+                isHotkeyHeldSession = false
+                presentScoped(bundleIDs: bundleIDs)
+            }
+        }
+    }
+
+    /// The chord's modifiers being released — commits whatever's currently
+    /// selected, same as pressing Enter, but only if this hold actually
+    /// cycled the selection. A release that follows nothing but the
+    /// opening press is a no-op, leaving the picker open for typing.
+    func hotkeyReleased(scope: HotkeyScope) {
+        guard case .apps = scope, isHotkeyHeldSession, panel.isVisible, case .scoped = state?.stage else { return }
+        isHotkeyHeldSession = false
+        send(.activateSelection)
+    }
+
     private func present() {
         panel.showCentered()
         panel.setResults(titles: [], selectedIndex: 0)
@@ -40,6 +89,64 @@ final class PickerController: PickerPanelDelegate {
             self.state = PickerState(availableApps: apps)
             self.pushResults()
         }
+    }
+
+    /// Scoped-hotkey entry point: jumps straight to stage two, skipping the
+    /// app-token typing. `bundleIDs` is checked in list order for the first
+    /// one actually running; if none are, the first one is launched instead
+    /// — the design doc scopes launch-on-miss to the hotkey path only, not
+    /// the picker's Enter key.
+    private func presentScoped(bundleIDs: [String]) {
+        let running = NSWorkspace.shared.runningApplications
+        guard let targetBundleID = bundleIDs.first(where: { id in running.contains { $0.bundleIdentifier == id } })
+        else {
+            if let fallback = bundleIDs.first { launchApp(bundleID: fallback) }
+            return
+        }
+
+        // Chrome/iTerm always show the picker immediately, then fill in
+        // Tier-1 tabs async — unchanged, since that's the whole point of
+        // having a rich provider for them. Everything else's final item
+        // count is knowable up front from a single cheap in-process AX
+        // call, so it's worth the brief wait to decide first: a single
+        // window with no native tabs of its own was never going to become
+        // more than one candidate, and showing a one-row picker just to
+        // make the user confirm a choice that isn't one is the papercut
+        // this skips.
+        let hasTabProvider = targetBundleID == ChromeWindowSource.bundleID || targetBundleID == ITermWindowSource.bundleID
+        if hasTabProvider {
+            panel.showCentered()
+            panel.setResults(titles: [], selectedIndex: 0)
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            let apps = await self.appSource.runningApps()
+            guard let entry = apps.first(where: { $0.app.id == targetBundleID }) else {
+                self.dismiss()
+                return
+            }
+
+            if !hasTabProvider, entry.items.count == 1 {
+                let tabs = await self.genericSource.items(for: entry.app)
+                if tabs.isEmpty {
+                    self.appSource.activate(item: entry.items[0], in: entry.app)
+                    return
+                }
+            }
+
+            if !self.panel.isVisible {
+                self.panel.showCentered()
+                self.panel.setResults(titles: [], selectedIndex: 0)
+            }
+            self.state = PickerState(availableApps: apps)
+            self.send(.scopeToApp(entry.app))
+        }
+    }
+
+    private func launchApp(bundleID: String) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 
     private func dismiss() {

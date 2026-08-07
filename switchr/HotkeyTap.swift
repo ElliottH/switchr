@@ -1,17 +1,45 @@
 import Carbon.HIToolbox
 import Cocoa
 
-/// Global hotkey via a listen-and-consume `CGEvent` tap. An `NSEvent` global
-/// monitor is passive and can't swallow the event, so the keystroke would
-/// also reach the frontmost app and double-fire. v0 ships one hardcoded
-/// global hotkey (hyper+Space, i.e. ⌘⌥⌃⇧+Space); per-app scoped hotkeys and
-/// a config file to define them are later work.
-final class HotkeyTap {
-    private var port: CFMachPort?
-    private let onTrigger: () -> Void
+/// One configured chord. `onRelease` is what distinguishes a scoped hotkey's
+/// hold/cycle/release interaction from the plain global toggle: `nil` means
+/// "fire once per press, no held-chord session" (the global hotkey);
+/// non-`nil` means each additional press while the chord is held should
+/// advance a selection, and releasing any of its modifiers should commit.
+struct RegisteredHotkey {
+    let keyCode: CGKeyCode
+    let modifierMask: CGEventFlags
+    let onPress: @MainActor () -> Void
+    let onRelease: (@MainActor () -> Void)?
 
-    init(onTrigger: @escaping () -> Void) {
-        self.onTrigger = onTrigger
+    init(keyCode: CGKeyCode, modifierMask: CGEventFlags, onPress: @escaping @MainActor () -> Void, onRelease: (@MainActor () -> Void)? = nil) {
+        self.keyCode = keyCode
+        self.modifierMask = modifierMask
+        self.onPress = onPress
+        self.onRelease = onRelease
+    }
+}
+
+/// Global hotkeys via a listen-and-consume `CGEvent` tap. An `NSEvent` global
+/// monitor is passive and can't swallow the event, so the keystroke would
+/// also reach the frontmost app and double-fire.
+final class HotkeyTap {
+    /// The only modifier bits chords are matched against — CGEventFlags
+    /// carries other device-dependent bits (e.g. numeric keypad) that must
+    /// not affect the comparison.
+    private static let relevantModifierMask: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+
+    private var port: CFMachPort?
+    private let hotkeys: [RegisteredHotkey]
+    /// The chord currently mid-hold, if any — set on a `keyDown` match whose
+    /// hotkey has an `onRelease`, cleared once that release fires. There's
+    /// only ever one: a second chord's `keyDown` can't occur while the first
+    /// one's modifiers are still held, since modifier chords share the same
+    /// physical keys.
+    private var armedHotkey: RegisteredHotkey?
+
+    init(hotkeys: [RegisteredHotkey]) {
+        self.hotkeys = hotkeys
     }
 
     /// Returns `false` if the tap couldn't be created (no Accessibility
@@ -19,7 +47,7 @@ final class HotkeyTap {
     /// `AXIsProcessTrusted()`, but `tapCreate` is the authoritative check.
     @discardableResult
     func start() -> Bool {
-        let mask: CGEventMask = 1 << CGEventType.keyDown.rawValue
+        let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
 
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -65,22 +93,31 @@ final class HotkeyTap {
             return nil
 
         case .keyDown:
-            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-            let flags = event.flags
-            let isTriggerChord = keyCode == kVK_Space
-                && flags.contains(.maskCommand)
-                && flags.contains(.maskAlternate)
-                && flags.contains(.maskControl)
-                && flags.contains(.maskShift)
+            let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+            let flags = event.flags.intersection(Self.relevantModifierMask)
 
-            guard isTriggerChord else {
+            guard let hotkey = hotkeys.first(where: { $0.keyCode == keyCode && $0.modifierMask == flags }) else {
                 return Unmanaged.passUnretained(event)
             }
 
-            DispatchQueue.main.async { [onTrigger] in
-                onTrigger()
+            if hotkey.onRelease != nil {
+                armedHotkey = hotkey
+            }
+            DispatchQueue.main.async { [onPress = hotkey.onPress] in
+                MainActor.assumeIsolated { onPress() }
             }
             return nil
+
+        case .flagsChanged:
+            // Held-chord release detection only, never consumed — ordinary
+            // modifier key traffic must keep flowing to every other app.
+            if let armed = armedHotkey, !armed.modifierMask.isSubset(of: event.flags) {
+                armedHotkey = nil
+                DispatchQueue.main.async { [onRelease = armed.onRelease] in
+                    MainActor.assumeIsolated { onRelease?() }
+                }
+            }
+            return Unmanaged.passUnretained(event)
 
         default:
             return Unmanaged.passUnretained(event)

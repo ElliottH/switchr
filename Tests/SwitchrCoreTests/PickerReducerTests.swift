@@ -287,6 +287,43 @@ struct PickerReducerTests {
     }
 
     @Test
+    func scopeToAppEntersScopedStageDirectlyLikeSpaceCommit() {
+        var state = makeState()
+        let (effect, outcome) = PickerReducer.reduce(state: &state, action: .scopeToApp(chromeApp), matcher: matcher)
+
+        #expect(state.stage == .scoped(chromeApp))
+        #expect(state.query == "")
+        #expect(Set(state.scopedItems.map(\.id)) == ["chrome-1", "chrome-2"])
+        #expect(state.rankedIDs == ["chrome-1", "chrome-2"])
+        #expect(effect == .loadItems(for: chromeApp))
+        #expect(outcome == nil)
+    }
+
+    @Test
+    func scopeToAppSelectionIsImmediatelyActivatable() {
+        var state = makeState()
+        _ = PickerReducer.reduce(state: &state, action: .scopeToApp(chromeApp), matcher: matcher)
+
+        let (_, outcome) = PickerReducer.reduce(state: &state, action: .activateSelection, matcher: matcher)
+
+        #expect(outcome == .activateItem(
+            PickerItem(id: "chrome-1", title: "YouTube - Chill Lofi", secondaryText: "youtube.com"),
+            in: chromeApp
+        ))
+    }
+
+    @Test
+    func scopeToAppForUnknownAppIsNoOp() {
+        var state = makeState()
+        let unknownApp = RunningApp(id: "com.example.unknown", name: "Unknown")
+        let (effect, outcome) = PickerReducer.reduce(state: &state, action: .scopeToApp(unknownApp), matcher: matcher)
+
+        #expect(state.stage == .selectingApp)
+        #expect(effect == nil)
+        #expect(outcome == nil)
+    }
+
+    @Test
     func emptyQueryClearingFallthroughResetsToFullAppList() {
         var state = makeState()
         _ = PickerReducer.reduce(state: &state, action: .queryChanged("lofi"), matcher: matcher)

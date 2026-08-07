@@ -42,6 +42,10 @@ public enum PickerAction: Equatable, Sendable {
     case itemsLoaded([PickerItem])
     case moveSelection(by: Int)
     case activateSelection
+    /// A scoped hotkey committing straight to stage two, bypassing the
+    /// app-token typing entirely — the caller (not the reducer) is
+    /// responsible for confirming `app` is actually running first.
+    case scopeToApp(RunningApp)
 }
 
 /// Work the caller must perform outside the reducer — querying tab/window
@@ -83,6 +87,10 @@ public enum PickerReducer {
 
         case .activateSelection:
             return (nil, handleActivateSelection(state: &state))
+
+        case .scopeToApp(let app):
+            let effect = handleScopeToApp(app, state: &state, matcher: matcher)
+            return (effect, nil)
         }
     }
 
@@ -146,6 +154,26 @@ public enum PickerReducer {
             state.selectedIndex = 0
             return nil
         }
+    }
+
+    /// Mirrors the trailing-space commit path in `handleQueryChanged`: seeds
+    /// `scopedItems` from the Tier-0 snapshot so the active window/tab has a
+    /// selectable row immediately, and still kicks off `.loadItems` for the
+    /// Tier 1-3 results Chrome/iTerm's sources omit for that same row.
+    private static func handleScopeToApp(
+        _ app: RunningApp,
+        state: inout PickerState,
+        matcher: Matcher
+    ) -> PickerEffect? {
+        guard let entry = state.availableApps.first(where: { $0.app.id == app.id }) else {
+            return nil
+        }
+        state.stage = .scoped(entry.app)
+        state.query = ""
+        state.scopedItems = entry.items
+        state.selectedIndex = 0
+        rerankScoped(&state, matcher: matcher)
+        return .loadItems(for: entry.app)
     }
 
     private static func handleBackspaceAtStart(state: inout PickerState, matcher: Matcher) {
