@@ -26,11 +26,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startEventTap() {
         let bindings = HotkeyConfigLoader.loadBindings()
+        let resolvedHotkeys = HotkeyConfigLoader.buildHotkeys(from: bindings, pickerController: pickerController)
         // No config file, or one with no valid entries: the one hardcoded
         // hyper+space global hotkey this app has always shipped with.
-        let hotkeys = bindings.isEmpty
-            ? defaultHotkeys()
-            : HotkeyConfigLoader.buildHotkeys(from: bindings, pickerController: pickerController)
+        let hotkeys = resolvedHotkeys.isEmpty ? defaultHotkeys() : resolvedHotkeys
         let tap = HotkeyTap(hotkeys: hotkeys)
         guard tap.start() else { return }
         hotkeyTap = tap
