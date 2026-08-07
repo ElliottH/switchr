@@ -54,7 +54,7 @@ final class AXAppSource: AppSource {
         ) { group in
             for candidate in candidates {
                 group.addTask {
-                    let items = await Self.discoverWindows(pid: candidate.pid, fallbackName: candidate.name)
+                    let items = await Self.discoverWindows(pid: candidate.pid)
                     return (candidate.pid, candidate.bundleID, candidate.name, items)
                 }
             }
@@ -165,7 +165,7 @@ final class AXAppSource: AppSource {
     /// is what actually makes a wedged call return with an error instead of
     /// blocking the thread forever — the `withDeadline` wrapper only races
     /// cooperative `async` work, so it can't rescue a stuck syscall on its own.
-    private static func discoverWindows(pid: pid_t, fallbackName: String?) async -> [PickerItem] {
+    private static func discoverWindows(pid: pid_t) async -> [PickerItem] {
         await withDeadline(0.15) {
             let element = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(element, 150)
@@ -178,10 +178,15 @@ final class AXAppSource: AppSource {
 
             var items: [PickerItem] = []
             for (index, window) in windows.enumerated() {
+                // No fallback to the app's own name here — a window with no
+                // real AX title (e.g. Finder's desktop layer, which comes
+                // back through kAXWindowsAttribute alongside real windows)
+                // isn't something a title-fuzzy-search picker can usefully
+                // represent, so it's dropped rather than shown under a
+                // synthesized label.
                 var titleRef: CFTypeRef?
                 AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
-                let title = (titleRef as? String) ?? fallbackName ?? "Untitled"
-                guard !title.isEmpty else { continue }
+                guard let title = titleRef as? String, !title.isEmpty else { continue }
 
                 var documentRef: CFTypeRef?
                 AXUIElementCopyAttributeValue(window, kAXDocumentAttribute as CFString, &documentRef)
