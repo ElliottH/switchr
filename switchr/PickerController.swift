@@ -35,6 +35,13 @@ final class PickerController: PickerPanelDelegate {
     /// that the modifier's release always follows) would commit the
     /// top-ranked item immediately and never leave the picker open at all.
     private var isHotkeyHeldSession = false
+    /// Bumped by every `present()`/`presentScoped()` call and by `dismiss()`.
+    /// Their `Task`s capture the value current at their start and check it's
+    /// still current before mutating `state` — otherwise a stale Task from a
+    /// presentation the user has since dismissed or replaced (a quick
+    /// re-press, typing right after opening) could resolve late and clobber
+    /// newer, live state with its own outdated snapshot.
+    private var presentationGeneration = 0
 
     init(appSource: AXAppSource) {
         self.appSource = appSource
@@ -81,11 +88,13 @@ final class PickerController: PickerPanelDelegate {
     }
 
     private func present() {
+        let generation = beginNewPresentation()
         panel.showCentered()
         panel.setResults(titles: [], selectedIndex: 0)
         Task { [weak self] in
             guard let self else { return }
             let apps = await self.appSource.runningApps()
+            guard self.presentationGeneration == generation else { return }
             self.state = PickerState(availableApps: apps)
             self.pushResults()
         }
@@ -97,6 +106,7 @@ final class PickerController: PickerPanelDelegate {
     /// — the design doc scopes launch-on-miss to the hotkey path only, not
     /// the picker's Enter key.
     private func presentScoped(bundleIDs: [String]) {
+        let generation = beginNewPresentation()
         let running = NSWorkspace.shared.runningApplications
         guard let targetBundleID = bundleIDs.first(where: { id in running.contains { $0.bundleIdentifier == id } })
         else {
@@ -123,6 +133,7 @@ final class PickerController: PickerPanelDelegate {
         Task { [weak self] in
             guard let self else { return }
             let apps = await self.appSource.runningApps()
+            guard self.presentationGeneration == generation else { return }
             guard let entry = apps.first(where: { $0.app.id == targetBundleID }) else {
                 self.dismiss()
                 return
@@ -130,6 +141,7 @@ final class PickerController: PickerPanelDelegate {
 
             if !hasTabProvider, entry.items.count == 1 {
                 let tabs = await self.genericSource.items(for: entry.app)
+                guard self.presentationGeneration == generation else { return }
                 if tabs.isEmpty {
                     self.appSource.activate(item: entry.items[0], in: entry.app)
                     self.dismiss()
@@ -152,8 +164,15 @@ final class PickerController: PickerPanelDelegate {
     }
 
     private func dismiss() {
+        presentationGeneration += 1
         panel.hidePanel()
         state = nil
+    }
+
+    @discardableResult
+    private func beginNewPresentation() -> Int {
+        presentationGeneration += 1
+        return presentationGeneration
     }
 
     private func pushResults() {
