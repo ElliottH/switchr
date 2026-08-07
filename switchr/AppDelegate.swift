@@ -46,7 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let frontmostBefore = NSWorkspace.shared.frontmostApplication?.localizedName ?? "none"
         panel.showCentered()
         print(
-            "[Switchr] panel shown — NSApp.isActive: \(activeBefore) -> \(NSApp.isActive), "
+            "[switchr] panel shown — NSApp.isActive: \(activeBefore) -> \(NSApp.isActive), "
                 + "frontmost: \(frontmostBefore) -> \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "none")"
         )
     }
@@ -59,7 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateStatusIcon() {
         guard let button = statusItem?.button else { return }
-        let image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "Switchr")
+        let image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "switchr")
         image?.isTemplate = true
         button.image = image
     }
@@ -91,7 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Show Picker (Debug)", action: #selector(debugShowPicker), keyEquivalent: ""))
         menu.addItem(.separator())
         #endif
-        menu.addItem(NSMenuItem(title: "Quit Switchr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit switchr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         statusItem?.menu = menu
     }
