@@ -31,12 +31,14 @@ final class HotkeyTap {
 
     private var port: CFMachPort?
     private let hotkeys: [RegisteredHotkey]
-    /// The chord currently mid-hold, if any — set on a `keyDown` match whose
-    /// hotkey has an `onRelease`, cleared once that release fires. There's
-    /// only ever one: a second chord's `keyDown` can't occur while the first
-    /// one's modifiers are still held, since modifier chords share the same
-    /// physical keys.
-    private var armedHotkey: RegisteredHotkey?
+    /// Chords currently mid-hold, keyed by the physical key that armed them
+    /// — set on a `keyDown` match whose hotkey has an `onRelease`, cleared
+    /// once that release fires. Keyed rather than a single slot because two
+    /// app-scoped hotkeys can share the same modifiers but differ by key
+    /// (e.g. ⌘⌥C and ⌘⌥T both held in sequence without releasing ⌘⌥), and
+    /// each physical key can only ever have one binding matching it at a
+    /// time.
+    private var armedHotkeys: [CGKeyCode: RegisteredHotkey] = [:]
 
     init(hotkeys: [RegisteredHotkey]) {
         self.hotkeys = hotkeys
@@ -101,7 +103,7 @@ final class HotkeyTap {
             }
 
             if hotkey.onRelease != nil {
-                armedHotkey = hotkey
+                armedHotkeys[hotkey.keyCode] = hotkey
             }
             DispatchQueue.main.async { [onPress = hotkey.onPress] in
                 MainActor.assumeIsolated { onPress() }
@@ -111,8 +113,8 @@ final class HotkeyTap {
         case .flagsChanged:
             // Held-chord release detection only, never consumed — ordinary
             // modifier key traffic must keep flowing to every other app.
-            if let armed = armedHotkey, !armed.modifierMask.isSubset(of: event.flags) {
-                armedHotkey = nil
+            for (keyCode, armed) in armedHotkeys where !armed.modifierMask.isSubset(of: event.flags) {
+                armedHotkeys.removeValue(forKey: keyCode)
                 DispatchQueue.main.async { [onRelease = armed.onRelease] in
                     MainActor.assumeIsolated { onRelease?() }
                 }
