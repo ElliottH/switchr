@@ -62,7 +62,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateStatusIcon() {
         guard let button = statusItem?.button else { return }
-        let image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "switchr")
+        let image = NSImage(systemSymbolName: "binoculars.fill", accessibilityDescription: "switchr")
         image?.isTemplate = true
         button.image = image
     }
