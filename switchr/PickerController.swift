@@ -156,6 +156,7 @@ final class PickerController: PickerPanelDelegate {
                 return
             }
 
+            var preloadedTabs: [PickerItem]?
             if !hasTabProvider, entry.items.count == 1 {
                 let tabs = await self.windowSource(for: targetBundleID).items(for: entry.app)
                 guard self.presentationGeneration == generation else { return }
@@ -164,6 +165,7 @@ final class PickerController: PickerPanelDelegate {
                     self.dismiss()
                     return
                 }
+                preloadedTabs = tabs
             }
 
             if !self.panel.isVisible {
@@ -171,7 +173,15 @@ final class PickerController: PickerPanelDelegate {
                 self.panel.setResults(titles: [], selectedIndex: 0)
             }
             self.state = PickerState(availableApps: apps)
-            self.send(.scopeToApp(entry.app))
+            if let preloadedTabs {
+                // Already walked this app's AX tree above to decide it had
+                // more than one candidate — reuse that result instead of
+                // letting .scopeToApp's .loadItems effect walk it again.
+                self.send(.scopeToApp(entry.app), dispatchEffect: false)
+                self.send(.itemsLoaded(preloadedTabs, for: entry.app))
+            } else {
+                self.send(.scopeToApp(entry.app))
+            }
         }
     }
 
@@ -225,13 +235,19 @@ final class PickerController: PickerPanelDelegate {
         }
     }
 
-    private func send(_ action: PickerAction) {
+    /// `dispatchEffect: false` skips handing the reducer's effect (if any) to
+    /// `handle(_:)` — the one caller that needs this is `presentScoped`'s
+    /// single-window path, which has already performed the exact AX/AppleScript
+    /// walk `.scopeToApp`'s `.loadItems` effect would otherwise trigger a
+    /// second time, and hands the results it already has to `.itemsLoaded`
+    /// directly instead.
+    private func send(_ action: PickerAction, dispatchEffect: Bool = true) {
         guard var state else { return }
         let (effect, outcome) = PickerReducer.reduce(state: &state, action: action, matcher: matcher)
         self.state = state
         pushResults()
 
-        if let effect { handle(effect) }
+        if dispatchEffect, let effect { handle(effect) }
         if let outcome { handle(outcome) }
     }
 
