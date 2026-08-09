@@ -20,11 +20,18 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
     private let scopeLabel = NSTextField(labelWithString: "")
     private let textField = NSTextField()
     private let resultsStack = NSStackView()
+    private let resultsScrollView = NSScrollView()
     private let textFieldAreaHeight: CGFloat = 52
     private let rowHeight: CGFloat = 28
     private let bottomPadding: CGFloat = 8
     private let panelWidth: CGFloat = 560
+    /// Rows visible without scrolling — beyond this, `resultsScrollView`
+    /// scrolls instead of the panel growing past the screen edge. Keyboard
+    /// selection still reaches every ranked candidate, not just these first
+    /// few; `setResults` scrolls the selected row into view as it moves.
+    private let maxVisibleRows = 8
     private var isProgrammaticUpdate = false
+    private var resultsHeightConstraint: NSLayoutConstraint!
 
     convenience init() {
         self.init(
@@ -87,11 +94,30 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
         textField.delegate = self
         textFieldRow.addSubview(textField)
 
+        // Rows stretch to full width via their own explicit leading/trailing
+        // pins to resultsStack (see makeRow) rather than stack alignment —
+        // NSStackView's `.width` alignment sizes arranged views equal to
+        // each other and centers them, it doesn't fill the container.
         resultsStack.translatesAutoresizingMaskIntoConstraints = false
         resultsStack.orientation = .vertical
         resultsStack.spacing = 0
         resultsStack.alignment = .leading
-        container.addSubview(resultsStack)
+
+        resultsScrollView.translatesAutoresizingMaskIntoConstraints = false
+        resultsScrollView.drawsBackground = false
+        resultsScrollView.hasVerticalScroller = true
+        // A permanently-visible scroller (autohidesScrollers = false)
+        // rendered a stray square-cornered artifact against this view's
+        // vibrancy background — its knob doesn't composite against
+        // NSVisualEffectView the way it does over an opaque background.
+        // Default overlay auto-hiding avoids that and still surfaces on
+        // scroll or via the explicit flashScrollers() call below.
+        resultsScrollView.autohidesScrollers = true
+        resultsScrollView.hasHorizontalScroller = false
+        resultsScrollView.documentView = resultsStack
+        container.addSubview(resultsScrollView)
+
+        resultsHeightConstraint = resultsScrollView.heightAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
             textFieldRow.topAnchor.constraint(equalTo: container.topAnchor),
@@ -106,9 +132,14 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
             textField.trailingAnchor.constraint(equalTo: textFieldRow.trailingAnchor, constant: -16),
             textField.centerYAnchor.constraint(equalTo: textFieldRow.centerYAnchor),
 
-            resultsStack.topAnchor.constraint(equalTo: textFieldRow.bottomAnchor),
-            resultsStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            resultsStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            resultsScrollView.topAnchor.constraint(equalTo: textFieldRow.bottomAnchor),
+            resultsScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            resultsScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            resultsHeightConstraint,
+
+            resultsStack.topAnchor.constraint(equalTo: resultsScrollView.contentView.topAnchor),
+            resultsStack.leadingAnchor.constraint(equalTo: resultsScrollView.contentView.leadingAnchor),
+            resultsStack.widthAnchor.constraint(equalTo: resultsScrollView.contentView.widthAnchor),
         ])
 
         contentView = container
@@ -141,6 +172,12 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
             newFrame.origin.y = screen.visibleFrame.midY + screen.visibleFrame.height * 0.15
         }
         setFrame(newFrame, display: true)
+        // AppKit doesn't automatically recompute a borderless window's
+        // shadow to match a programmatically-masked (rounded-corner)
+        // content view on every arbitrary resize — without this, the
+        // shadow can stay shaped for a stale frame, showing as a hard edge
+        // that doesn't follow the rounded corners.
+        invalidateShadow()
         // makeKeyAndOrderFront + .nonactivatingPanel is the whole mechanism
         // here — never NSApp.activate(), or the frontmost app behind the
         // panel gets deactivated.
@@ -185,14 +222,52 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
         }
 
         for (index, title) in titles.enumerated() {
-            resultsStack.addArrangedSubview(makeRow(title: title, isSelected: index == selectedIndex))
+            let row = makeRow(title: title, isSelected: index == selectedIndex)
+            resultsStack.addArrangedSubview(row)
+            // Only pinned to resultsStack once it's actually a subview of
+            // it — activating this inside makeRow, before the row has any
+            // superview, has no common ancestor for Auto Layout to solve
+            // against.
+            NSLayoutConstraint.activate([
+                row.leadingAnchor.constraint(equalTo: resultsStack.leadingAnchor),
+                row.trailingAnchor.constraint(equalTo: resultsStack.trailingAnchor),
+            ])
         }
 
-        let height = textFieldAreaHeight + (titles.isEmpty ? 0 : CGFloat(titles.count) * rowHeight + bottomPadding)
+        // The panel itself only ever grows tall enough for maxVisibleRows —
+        // beyond that, resultsScrollView scrolls instead of the window
+        // marching off the bottom of the screen. Every ranked candidate is
+        // still reachable by arrow key; only the *viewport* is capped.
+        //
+        // resultsScrollView's own height stops short of bottomPadding,
+        // leaving it inset from the container's bottom edge — matching the
+        // pre-scroll-view layout, where the stack view's unconstrained
+        // bottom left the same implicit gap above the window's edge.
+        let visibleRowCount = min(titles.count, maxVisibleRows)
+        let listHeight = titles.isEmpty ? 0 : CGFloat(visibleRowCount) * rowHeight + bottomPadding
+        resultsHeightConstraint.constant = titles.isEmpty ? 0 : CGFloat(visibleRowCount) * rowHeight
+
+        let height = textFieldAreaHeight + listHeight
         var newFrame = frame
         newFrame.origin.y = frame.maxY - height
         newFrame.size.height = height
         setFrame(newFrame, display: true)
+        invalidateShadow()
+
+        if titles.count > maxVisibleRows {
+            resultsScrollView.flashScrollers()
+        }
+
+        if titles.indices.contains(selectedIndex) {
+            // Force layout first — scrolling to a row's bounds before the
+            // stack has actually laid out this update's rows targets stale
+            // (or, for a freshly-added row, zero) geometry, most visibly
+            // wrong on the wraparound jump from the last row back to the
+            // first (or vice versa) rather than a simple one-row step.
+            resultsStack.layoutSubtreeIfNeeded()
+            let row = resultsStack.arrangedSubviews[selectedIndex]
+            row.scrollToVisible(row.bounds)
+        }
     }
 
     private func makeRow(title: String, isSelected: Bool) -> NSView {
@@ -209,8 +284,16 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
         label.lineBreakMode = .byTruncatingTail
         row.addSubview(label)
 
+        // No fixed width here — NSStackView's `.width`/`.height` alignment
+        // options size arranged views *equal to each other* and center them,
+        // they don't stretch a view to fill the stack's own bounds (an easy
+        // AppKit gotcha — this was tried first and produced narrow,
+        // right-of-center rows instead of full-width ones). The caller pins
+        // each row's leading/trailing to resultsStack once it's actually
+        // been added as an arranged subview — doing that here, before this
+        // view has any superview, has no common ancestor for Auto Layout to
+        // solve against.
         NSLayoutConstraint.activate([
-            row.widthAnchor.constraint(equalToConstant: panelWidth - 16),
             row.heightAnchor.constraint(equalToConstant: rowHeight),
             label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 8),
             label.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
