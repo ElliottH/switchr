@@ -215,19 +215,28 @@ final class PickerController: PickerPanelDelegate {
     }
 
     private func displayTitles(for state: PickerState) -> [String] {
+        // `uniquingKeysWith` keeps the first match on a duplicate id, same as
+        // the linear-scan `.first { ... }` this replaced — an O(n) dictionary
+        // build once per call instead of an O(n) scan per ranked id.
         switch state.stage {
         case .selectingApp:
-            return state.rankedIDs.compactMap { id in
-                state.availableApps.first { $0.app.id == id }?.app.name
-            }
+            let namesByID = Dictionary(
+                state.availableApps.map { ($0.app.id, $0.app.name) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return state.rankedIDs.compactMap { namesByID[$0] }
         case .scoped:
-            return state.rankedIDs.compactMap { id in
-                state.scopedItems.first { $0.id == id }?.title
-            }
+            let titlesByID = Dictionary(
+                state.scopedItems.map { ($0.id, $0.title) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return state.rankedIDs.compactMap { titlesByID[$0] }
         case .globalFallthrough:
-            return state.rankedIDs.compactMap { id in
-                state.availableApps.lazy.flatMap(\.items).first { $0.id == id }?.title
-            }
+            let titlesByID = Dictionary(
+                state.availableApps.flatMap(\.items).map { ($0.id, $0.title) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return state.rankedIDs.compactMap { titlesByID[$0] }
         }
     }
 
