@@ -54,9 +54,7 @@ final class AXTabWindowSource: WindowSource {
             raiseAXWindow(window, pid: target.pid)
 
             guard let tabGroup = findTabGroup(in: window, remainingDepth: maxWalkDepth) else { return true }
-            var childrenRef: CFTypeRef?
-            AXUIElementCopyAttributeValue(tabGroup, kAXChildrenAttribute as CFString, &childrenRef)
-            guard let tabs = childrenRef as? [AXUIElement] else { return true }
+            guard let tabs = axChildren(of: tabGroup) else { return true }
             guard let tab = axElement(in: tabs, matchingTitle: item.title, fallbackIndex: target.tabIndex) else { return true }
             AXUIElementPerformAction(tab, kAXPressAction as CFString)
             return true
@@ -79,22 +77,12 @@ final class AXTabWindowSource: WindowSource {
     /// `async` work, so it can't rescue a stuck syscall on its own.
     private static func discoverTabs(pid: pid_t, maxDepth: Int) async -> [PickerItem] {
         await withDeadline(0.15) {
-            let element = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(element, 150)
-
-            var windowsRef: CFTypeRef?
-            let result = AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &windowsRef)
-            guard result == .success, let windows = windowsRef as? [AXUIElement] else {
-                return []
-            }
+            guard let windows = axWindows(forPID: pid, timeout: 150) else { return [] }
 
             var items: [PickerItem] = []
             for (windowIndex, window) in windows.enumerated() {
                 guard let tabGroup = findTabGroup(in: window, remainingDepth: maxDepth) else { continue }
-
-                var childrenRef: CFTypeRef?
-                AXUIElementCopyAttributeValue(tabGroup, kAXChildrenAttribute as CFString, &childrenRef)
-                guard let tabs = childrenRef as? [AXUIElement] else { continue }
+                guard let tabs = axChildren(of: tabGroup) else { continue }
 
                 let windowTitle = axTitle(of: window)
 

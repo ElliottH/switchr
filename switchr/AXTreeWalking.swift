@@ -3,9 +3,16 @@ import AppKit
 
 /// Fetches `pid`'s window list fresh via AX every call — window lists are
 /// never cached across the picker's item-list lifetime, since windows can
-/// close or reorder between discovery and activation.
-private func axWindows(forPID pid: pid_t) -> [AXUIElement]? {
+/// close or reorder between discovery and activation. `timeout`, when
+/// given, is set on the app element before the fetch — discovery call sites
+/// race a wedged app over the wire; the activation call site trusts the
+/// system default since it's already inside its own `withDeadline`-guarded
+/// window elsewhere.
+func axWindows(forPID pid: pid_t, timeout: Float? = nil) -> [AXUIElement]? {
     let appElement = AXUIElementCreateApplication(pid)
+    if let timeout {
+        AXUIElementSetMessagingTimeout(appElement, timeout)
+    }
     var windowsRef: CFTypeRef?
     guard
         AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
@@ -61,6 +68,12 @@ func axTitle(of element: AXUIElement) -> String? {
     return titleRef as? String
 }
 
+func axChildren(of element: AXUIElement) -> [AXUIElement]? {
+    var childrenRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
+    return childrenRef as? [AXUIElement]
+}
+
 /// Unminimises and raises `window`, activating its owning app — activation
 /// is more than `AXRaise` alone.
 func raiseAXWindow(_ window: AXUIElement, pid: pid_t) {
@@ -84,9 +97,7 @@ func findTabGroup(in element: AXUIElement, remainingDepth: Int) -> AXUIElement? 
         return element
     }
 
-    var childrenRef: CFTypeRef?
-    AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
-    guard let children = childrenRef as? [AXUIElement] else { return nil }
+    guard let children = axChildren(of: element) else { return nil }
 
     for child in children {
         if let found = findTabGroup(in: child, remainingDepth: remainingDepth - 1) {

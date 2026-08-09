@@ -125,14 +125,7 @@ final class AXAppSource: AppSource {
     /// cooperative `async` work, so it can't rescue a stuck syscall on its own.
     private static func discoverWindows(pid: pid_t) async -> [PickerItem] {
         await withDeadline(0.15) {
-            let element = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(element, 150)
-
-            var windowsRef: CFTypeRef?
-            let result = AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &windowsRef)
-            guard result == .success, let windows = windowsRef as? [AXUIElement] else {
-                return []
-            }
+            guard let windows = axWindows(forPID: pid, timeout: 150) else { return [] }
 
             var items: [PickerItem] = []
             for (index, window) in windows.enumerated() {
@@ -142,9 +135,7 @@ final class AXAppSource: AppSource {
                 // isn't something a title-fuzzy-search picker can usefully
                 // represent, so it's dropped rather than shown under a
                 // synthesized label.
-                var titleRef: CFTypeRef?
-                AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
-                guard let title = titleRef as? String, !title.isEmpty else { continue }
+                guard let title = axTitle(of: window), !title.isEmpty else { continue }
 
                 var documentRef: CFTypeRef?
                 AXUIElementCopyAttributeValue(window, kAXDocumentAttribute as CFString, &documentRef)
