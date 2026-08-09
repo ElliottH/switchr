@@ -49,11 +49,7 @@ final class AXTabWindowSource: WindowSource {
         guard let target = Self.parseItemID(item.id) else { return false }
         return await MainActor.run {
             guard
-                let window = axWindow(
-                    forPID: target.pid,
-                    matchingTitle: item.windowTitle ?? "",
-                    fallbackIndex: target.windowIndex
-                )
+                let window = axWindow(forPID: target.pid, matchingTitle: item.windowTitle, fallbackIndex: target.windowIndex)
             else { return false }
             raiseAXWindow(window, pid: target.pid)
 
@@ -86,19 +82,13 @@ final class AXTabWindowSource: WindowSource {
     /// can't disambiguate duplicates) if the index is gone or its title
     /// changed out from under it.
     private static func tab(in tabs: [AXUIElement], matchingTitle title: String, fallbackIndex: Int) -> AXUIElement? {
-        if tabs.indices.contains(fallbackIndex), tabTitle(tabs[fallbackIndex]) == title {
+        if tabs.indices.contains(fallbackIndex), axTitle(of: tabs[fallbackIndex]) == title {
             return tabs[fallbackIndex]
         }
-        if let match = tabs.first(where: { tabTitle($0) == title }) {
+        if let match = tabs.first(where: { axTitle(of: $0) == title }) {
             return match
         }
         return tabs.indices.contains(fallbackIndex) ? tabs[fallbackIndex] : nil
-    }
-
-    private static func tabTitle(_ tab: AXUIElement) -> String? {
-        var titleRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(tab, kAXTitleAttribute as CFString, &titleRef)
-        return titleRef as? String
     }
 
     /// AX calls are synchronous IPC and can hang; `AXUIElementSetMessagingTimeout`
@@ -127,9 +117,7 @@ final class AXTabWindowSource: WindowSource {
                 let windowTitle = axTitle(of: window)
 
                 for (tabIndex, tab) in tabs.enumerated() {
-                    var titleRef: CFTypeRef?
-                    AXUIElementCopyAttributeValue(tab, kAXTitleAttribute as CFString, &titleRef)
-                    guard let title = titleRef as? String, !title.isEmpty else { continue }
+                    guard let title = axTitle(of: tab), !title.isEmpty else { continue }
 
                     // The selected tab's title is also the window's own
                     // Tier-0 title — reusing that item's id here, rather than

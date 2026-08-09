@@ -91,8 +91,10 @@ final class AXAppSource: AppSource {
     /// (`"pid:windowIndex:tab:tabIndex"`) are `AXTabWindowSource`'s to
     /// activate, not this type's — by the time a caller falls back to this
     /// method, every `WindowSource` in the registry has already declined the
-    /// item, so this only ever needs to understand its own plain-window id
-    /// shape.
+    /// item, so the only `"pid:windowIndex"` items reaching here are this
+    /// type's own Tier-0 windows and the selected-tab items that
+    /// `AXTabWindowSource.discoverTabs` deliberately mints in the same id
+    /// shape (see below).
     ///
     /// Re-resolves by title rather than trusting `windowIndex` alone — a
     /// window can close or a new one can open ahead of it between discovery

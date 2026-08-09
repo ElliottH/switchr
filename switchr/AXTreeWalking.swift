@@ -16,11 +16,6 @@ private func axWindows(forPID pid: pid_t) -> [AXUIElement]? {
     return windows
 }
 
-func axWindow(forPID pid: pid_t, index: Int) -> AXUIElement? {
-    guard let windows = axWindows(forPID: pid), windows.indices.contains(index) else { return nil }
-    return windows[index]
-}
-
 /// Re-resolves `fallbackIndex` against a freshly-fetched window list by
 /// title first — mirrors `AXTabWindowSource.tab(in:matchingTitle:fallbackIndex:)`:
 /// a window list can reorder or lose entries between discovery and Enter, so
@@ -29,9 +24,15 @@ func axWindow(forPID pid: pid_t, index: Int) -> AXUIElement? {
 /// matches (the strongest signal, and the only one immune to duplicate
 /// titles when nothing actually moved), then falls back to a title scan
 /// (can't disambiguate duplicates), then the stale index itself as a last
-/// resort if even that comes up empty.
-func axWindow(forPID pid: pid_t, matchingTitle title: String, fallbackIndex: Int) -> AXUIElement? {
+/// resort if even that comes up empty. `title` is `nil` when the caller has
+/// no title signal at all (e.g. a title-less window) — skips straight to the
+/// index rather than paying an AX round-trip per window on a scan that can't
+/// match anything.
+func axWindow(forPID pid: pid_t, matchingTitle title: String?, fallbackIndex: Int) -> AXUIElement? {
     guard let windows = axWindows(forPID: pid) else { return nil }
+    guard let title else {
+        return windows.indices.contains(fallbackIndex) ? windows[fallbackIndex] : nil
+    }
     if windows.indices.contains(fallbackIndex), axTitle(of: windows[fallbackIndex]) == title {
         return windows[fallbackIndex]
     }
