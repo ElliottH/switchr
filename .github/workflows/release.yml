@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]*'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_KEYCHAIN_PWD: ${{ secrets.MACOS_KEYCHAIN_PWD }}
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$MACOS_KEYCHAIN_PWD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PWD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$MACOS_KEYCHAIN_PWD" build.keychain
+          rm certificate.p12
+
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -project switchr.xcodeproj \
+            -scheme switchr \
+            -configuration Release \
+            -archivePath switchr.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application"
+
+      - name: Export
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath switchr.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath export/
+
+      - name: Notarize
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}
+        run: |
+          ASC_KEY_FILE=$(mktemp)
+          echo "$ASC_KEY_CONTENT" > "$ASC_KEY_FILE"
+
+          ditto -c -k --keepParent export/switchr.app switchr-notarize.zip
+
+          xcrun notarytool submit switchr-notarize.zip \
+            --key "$ASC_KEY_FILE" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait
+
+          rm "$ASC_KEY_FILE" switchr-notarize.zip
+
+      - name: Staple
+        run: xcrun stapler staple export/switchr.app
+
+      - name: Package release archive
+        id: package
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          ARCHIVE="switchr-${TAG}-macos.zip"
+          ditto -c -k --keepParent export/switchr.app "$ARCHIVE"
+          SHA256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF#refs/tags/}" "$ARCHIVE" --generate-notes
+
+      - name: Homebrew cask update summary
+        run: |
+          {
+            echo "## Homebrew cask update"
+            echo '```ruby'
+            echo "version \"${{ steps.package.outputs.version }}\""
+            echo "sha256 \"${{ steps.package.outputs.sha256 }}\""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain build.keychain 2>/dev/null || true
+
+  update-cask:
+    needs: release
+    permissions:
+      contents: write
+    uses: ElliottH/homebrew-tap/.github/workflows/update-cask.yml@main
+    with:
+      app: switchr
+      version: ${{ needs.release.outputs.version }}
+      sha256: ${{ needs.release.outputs.sha256 }}
+    secrets:
+      TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}

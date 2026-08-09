@@ -17,8 +17,8 @@ Window and tab finder for macOS 🔭
 ## Installation
 
 ```sh
-brew tap ElliottH/switchr
-brew install --cask ElliottH/switchr/switchr
+brew tap ElliottH/tap
+brew install --cask ElliottH/tap/switchr
 ```
 
 `switchr` will appear in your menu bar. You will be prompted to grant
