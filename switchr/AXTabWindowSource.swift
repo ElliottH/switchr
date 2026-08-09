@@ -101,17 +101,18 @@ final class AXTabWindowSource: WindowSource {
                 for (tabIndex, tab) in tabs.enumerated() {
                     guard let title = axTitle(of: tab), !title.isEmpty else { continue }
 
-                    // The selected tab's title is also the window's own
-                    // Tier-0 title — reusing that item's id here, rather than
-                    // minting a distinct tab id, lets the reducer's existing
-                    // "skip an id already present" rule in `itemsLoaded`
-                    // collapse the duplicate for free instead of showing the
-                    // same window twice.
+                    // Mirrors ChromeWindowSource/ITermWindowSource: the
+                    // selected tab is deliberately omitted, not emitted under
+                    // a borrowed id. The Tier-0 AX window entry already
+                    // represents "raise this window", which lands on
+                    // whatever tab is active in it — same tab, queried
+                    // moments apart.
                     var valueRef: CFTypeRef?
                     AXUIElementCopyAttributeValue(tab, kAXValueAttribute as CFString, &valueRef)
                     let isSelected = (valueRef as? NSNumber)?.intValue == 1
-                    let id = isSelected ? "\(pid):\(windowIndex)" : "\(pid):\(windowIndex):tab:\(tabIndex)"
+                    guard !isSelected else { continue }
 
+                    let id = "\(pid):\(windowIndex):tab:\(tabIndex)"
                     items.append(PickerItem(id: id, title: title, windowTitle: windowTitle))
                 }
             }

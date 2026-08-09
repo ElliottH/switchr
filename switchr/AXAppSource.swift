@@ -91,27 +91,21 @@ final class AXAppSource: AppSource {
     /// (`"pid:windowIndex:tab:tabIndex"`) are `AXTabWindowSource`'s to
     /// activate, not this type's — by the time a caller falls back to this
     /// method, every `WindowSource` in the registry has already declined the
-    /// item, so the only `"pid:windowIndex"` items reaching here are this
-    /// type's own Tier-0 windows and the selected-tab items that
-    /// `AXTabWindowSource.discoverTabs` deliberately mints in the same id
-    /// shape (see below).
+    /// item, so this only ever needs to understand its own plain-window id
+    /// shape.
     ///
     /// Re-resolves by title rather than trusting `windowIndex` alone — a
     /// window can close or a new one can open ahead of it between discovery
     /// and Enter, same staleness risk `AXTabWindowSource` already guards
     /// against for tabs. `item.title` is this type's own Tier-0 window
     /// title, captured at discovery time, so it's the right signal to
-    /// re-verify against — except for a selected-tab item minted by
-    /// `AXTabWindowSource.discoverTabs`, which reuses this id shape but
-    /// carries the *tab's* title in `title`; `item.windowTitle` holds the
-    /// actual window title for those, and is `nil` (a no-op fallback to
-    /// `item.title`) for every genuine Tier-0 item.
+    /// re-verify against.
     func activate(item: PickerItem, in app: RunningApp) {
         guard
             let pid = resolvePID(forAppID: app.id),
             let target = Self.parseWindowItemID(item.id),
             target.pid == pid,
-            let window = axWindow(forPID: pid, matchingTitle: item.windowTitle ?? item.title, fallbackIndex: target.windowIndex)
+            let window = axWindow(forPID: pid, matchingTitle: item.title, fallbackIndex: target.windowIndex)
         else {
             activate(app: app)
             return
