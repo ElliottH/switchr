@@ -112,7 +112,12 @@ final class PickerController: PickerPanelDelegate {
     /// app-token typing. `bundleIDs` is checked in list order for the first
     /// one actually running; if none are, the first one is launched instead
     /// — the design doc scopes launch-on-miss to the hotkey path only, not
-    /// the picker's Enter key.
+    /// the picker's Enter key. A target that's running but has no open
+    /// windows (e.g. Chrome kept alive after closing every window) gets the
+    /// same launch-on-miss treatment once the async lookup confirms it has
+    /// nothing to scope to — `openApplication` on an already-running app
+    /// reopens a default window rather than launching a second instance,
+    /// same as clicking its Dock icon.
     private func presentScoped(bundleIDs: [String]) {
         let generation = beginNewPresentation()
         let running = NSWorkspace.shared.runningApplications
@@ -146,6 +151,7 @@ final class PickerController: PickerPanelDelegate {
             let apps = await self.appSource.runningApps()
             guard self.presentationGeneration == generation else { return }
             guard let entry = apps.first(where: { $0.app.id == targetBundleID }) else {
+                self.launchApp(bundleID: targetBundleID)
                 self.dismiss()
                 return
             }
