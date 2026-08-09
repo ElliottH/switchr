@@ -65,10 +65,16 @@ final class AXAppSource: AppSource {
 
         let withItems = discovered.filter { !$0.items.isEmpty }
         // Stable sort preserves NSWorkspace's own order as the tiebreak for
-        // apps the MRU list doesn't (yet) mention.
+        // apps the MRU list doesn't (yet) mention. Rank looked up from a
+        // precomputed dictionary rather than `firstIndex(of:)` per
+        // comparison, which would rescan `mruBundleIDs` linearly on every
+        // one of the O(n log n) comparisons `sorted` makes.
+        let rankByBundleID = Dictionary(
+            uniqueKeysWithValues: mruBundleIDs.enumerated().map { ($1, $0) }
+        )
         let ranked = withItems.sorted { lhs, rhs in
-            let lhsRank = mruBundleIDs.firstIndex(of: lhs.bundleID ?? "") ?? Int.max
-            let rhsRank = mruBundleIDs.firstIndex(of: rhs.bundleID ?? "") ?? Int.max
+            let lhsRank = rankByBundleID[lhs.bundleID ?? ""] ?? Int.max
+            let rhsRank = rankByBundleID[rhs.bundleID ?? ""] ?? Int.max
             return lhsRank < rhsRank
         }
 
