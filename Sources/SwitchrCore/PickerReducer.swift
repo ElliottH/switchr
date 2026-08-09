@@ -19,6 +19,13 @@ public struct PickerState: Equatable, Sendable {
     public var rankedIDs: [String]
     public var selectedIndex: Int
 
+    /// `nil` when `selectedIndex` doesn't (or no longer does) point at a
+    /// live entry in `rankedIDs` — e.g. nothing ranked yet, or a rerank
+    /// shrank the list out from under a stale index.
+    var selectedID: String? {
+        rankedIDs.indices.contains(selectedIndex) ? rankedIDs[selectedIndex] : nil
+    }
+
     public init(availableApps: [AppWithItems]) {
         self.query = ""
         self.stage = .selectingApp
@@ -120,9 +127,7 @@ public enum PickerReducer {
                 // that follows, so Space and Enter agree on the same
                 // selection — falls back to the top hit only if the token
                 // itself changed enough to invalidate that selection.
-                let previouslySelectedID = state.rankedIDs.indices.contains(state.selectedIndex)
-                    ? state.rankedIDs[state.selectedIndex]
-                    : nil
+                let previouslySelectedID = state.selectedID
 
                 state.query = appToken
                 rerankApps(&state, matcher: matcher)
@@ -201,9 +206,7 @@ public enum PickerReducer {
         // to an item — preserve that highlight across the rerank rather than
         // silently snapping back to the top hit (same reasoning as the
         // space-commit path above).
-        let previouslySelectedID = state.rankedIDs.indices.contains(state.selectedIndex)
-            ? state.rankedIDs[state.selectedIndex]
-            : nil
+        let previouslySelectedID = state.selectedID
 
         rerankScoped(&state, matcher: matcher)
 
@@ -222,10 +225,9 @@ public enum PickerReducer {
 
     private static func handleActivateSelection(state: inout PickerState) -> PickerOutcome? {
         // Enter with nothing selected does nothing.
-        guard state.rankedIDs.indices.contains(state.selectedIndex) else {
+        guard let selectedID = state.selectedID else {
             return nil
         }
-        let selectedID = state.rankedIDs[state.selectedIndex]
 
         switch state.stage {
         case .selectingApp:
