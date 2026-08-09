@@ -57,7 +57,7 @@ final class AXTabWindowSource: WindowSource {
             var childrenRef: CFTypeRef?
             AXUIElementCopyAttributeValue(tabGroup, kAXChildrenAttribute as CFString, &childrenRef)
             guard let tabs = childrenRef as? [AXUIElement] else { return true }
-            guard let tab = Self.tab(in: tabs, matchingTitle: item.title, fallbackIndex: target.tabIndex) else { return true }
+            guard let tab = axElement(in: tabs, matchingTitle: item.title, fallbackIndex: target.tabIndex) else { return true }
             AXUIElementPerformAction(tab, kAXPressAction as CFString)
             return true
         }
@@ -71,24 +71,6 @@ final class AXTabWindowSource: WindowSource {
             return nil
         }
         return (pid, windowIndex, tabIndex)
-    }
-
-    /// Tab order can change between the picker loading and Enter being
-    /// pressed (a tab closed or reordered), so the index captured when the
-    /// item list was built may no longer point at the tab the user picked.
-    /// Trust the stale index first if its title still matches — the
-    /// strongest signal, and the only one immune to duplicate titles when
-    /// nothing actually moved — and only fall back to a title scan (which
-    /// can't disambiguate duplicates) if the index is gone or its title
-    /// changed out from under it.
-    private static func tab(in tabs: [AXUIElement], matchingTitle title: String, fallbackIndex: Int) -> AXUIElement? {
-        if tabs.indices.contains(fallbackIndex), axTitle(of: tabs[fallbackIndex]) == title {
-            return tabs[fallbackIndex]
-        }
-        if let match = tabs.first(where: { axTitle(of: $0) == title }) {
-            return match
-        }
-        return tabs.indices.contains(fallbackIndex) ? tabs[fallbackIndex] : nil
     }
 
     /// AX calls are synchronous IPC and can hang; `AXUIElementSetMessagingTimeout`

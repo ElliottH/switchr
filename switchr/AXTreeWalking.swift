@@ -17,29 +17,42 @@ private func axWindows(forPID pid: pid_t) -> [AXUIElement]? {
 }
 
 /// Re-resolves `fallbackIndex` against a freshly-fetched window list by
-/// title first — mirrors `AXTabWindowSource.tab(in:matchingTitle:fallbackIndex:)`:
-/// a window list can reorder or lose entries between discovery and Enter, so
-/// the index alone captured at discovery time may no longer point at the
-/// window the user picked. Trusts the stale index first if its title still
-/// matches (the strongest signal, and the only one immune to duplicate
-/// titles when nothing actually moved), then falls back to a title scan
-/// (can't disambiguate duplicates), then the stale index itself as a last
-/// resort if even that comes up empty. `title` is `nil` when the caller has
-/// no title signal at all (e.g. a title-less window) — skips straight to the
-/// index rather than paying an AX round-trip per window on a scan that can't
-/// match anything.
+/// title — a window list can reorder or lose entries between discovery and
+/// Enter, so the index alone captured at discovery time may no longer point
+/// at the window the user picked. Delegates the actual tie-break to
+/// `axElement(in:matchingTitle:fallbackIndex:)`, shared with
+/// `AXTabWindowSource`'s identical staleness problem for tabs within a
+/// window.
 func axWindow(forPID pid: pid_t, matchingTitle title: String?, fallbackIndex: Int) -> AXUIElement? {
     guard let windows = axWindows(forPID: pid) else { return nil }
+    return axElement(in: windows, matchingTitle: title, fallbackIndex: fallbackIndex)
+}
+
+/// Picks `fallbackIndex` out of `elements` by title first: trusts the stale
+/// index if its title still matches (the strongest signal, and the only one
+/// immune to duplicate titles when nothing actually moved), then falls back
+/// to a title scan (can't disambiguate duplicates), then the stale index
+/// itself as a last resort if even that comes up empty. `title` is `nil`
+/// when the caller has no title signal at all (e.g. a title-less window) —
+/// skips straight to the index rather than paying an AX round-trip per
+/// element on a scan that can't match anything.
+///
+/// Generic over `AXUIElement` arrays rather than tied to windows
+/// specifically — `axWindow(forPID:matchingTitle:fallbackIndex:)` uses it to
+/// re-resolve a window among its app's siblings, and `AXTabWindowSource`
+/// uses it directly to re-resolve a tab among its window's tab-group
+/// children, the same staleness problem one level down.
+func axElement(in elements: [AXUIElement], matchingTitle title: String?, fallbackIndex: Int) -> AXUIElement? {
     guard let title else {
-        return windows.indices.contains(fallbackIndex) ? windows[fallbackIndex] : nil
+        return elements.indices.contains(fallbackIndex) ? elements[fallbackIndex] : nil
     }
-    if windows.indices.contains(fallbackIndex), axTitle(of: windows[fallbackIndex]) == title {
-        return windows[fallbackIndex]
+    if elements.indices.contains(fallbackIndex), axTitle(of: elements[fallbackIndex]) == title {
+        return elements[fallbackIndex]
     }
-    if let match = windows.first(where: { axTitle(of: $0) == title }) {
+    if let match = elements.first(where: { axTitle(of: $0) == title }) {
         return match
     }
-    return windows.indices.contains(fallbackIndex) ? windows[fallbackIndex] : nil
+    return elements.indices.contains(fallbackIndex) ? elements[fallbackIndex] : nil
 }
 
 func axTitle(of element: AXUIElement) -> String? {
