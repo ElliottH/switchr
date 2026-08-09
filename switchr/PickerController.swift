@@ -261,10 +261,11 @@ final class PickerController: PickerPanelDelegate {
     private func handle(_ effect: PickerEffect) {
         switch effect {
         case .loadItems(let app):
+            let generation = presentationGeneration
             Task { [weak self] in
                 guard let self else { return }
                 let items = await self.windowSource(for: app.id).items(for: app)
-                guard !items.isEmpty else { return }
+                guard self.presentationGeneration == generation, !items.isEmpty else { return }
                 self.send(.itemsLoaded(items, for: app))
             }
         }
