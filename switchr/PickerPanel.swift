@@ -266,7 +266,7 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
         // bottom left the same implicit gap above the window's edge.
         let visibleRowCount = min(titles.count, maxVisibleRows)
         let listHeight = titles.isEmpty ? 0 : CGFloat(visibleRowCount) * rowHeight + bottomPadding
-        resultsHeightConstraint.constant = titles.isEmpty ? 0 : CGFloat(visibleRowCount) * rowHeight
+        resultsHeightConstraint.constant = CGFloat(visibleRowCount) * rowHeight
 
         let height = textFieldAreaHeight + listHeight
         var newFrame = frame
