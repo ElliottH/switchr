@@ -18,11 +18,19 @@ public struct PickerItem: Equatable, Identifiable, Sendable {
     /// A lower-weighted secondary field (e.g. a browser tab's URL). Matched,
     /// not necessarily displayed.
     public let secondaryText: String?
+    /// The AX title of the window this item's tab lives in, captured once at
+    /// discovery time — `nil` for id shapes that don't need it (Tier-0
+    /// window items already double as their own "window title" via `title`).
+    /// Lets activation re-resolve the owning window by title instead of
+    /// trusting a stale index, the same way `title` itself is used to
+    /// re-resolve Tier-0 windows and tabs.
+    public let windowTitle: String?
 
-    public init(id: String, title: String, secondaryText: String? = nil) {
+    public init(id: String, title: String, secondaryText: String? = nil, windowTitle: String? = nil) {
         self.id = id
         self.title = title
         self.secondaryText = secondaryText
+        self.windowTitle = windowTitle
     }
 }
 

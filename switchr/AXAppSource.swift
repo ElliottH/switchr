@@ -99,13 +99,17 @@ final class AXAppSource: AppSource {
     /// and Enter, same staleness risk `AXTabWindowSource` already guards
     /// against for tabs. `item.title` is this type's own Tier-0 window
     /// title, captured at discovery time, so it's the right signal to
-    /// re-verify against.
+    /// re-verify against — except for a selected-tab item minted by
+    /// `AXTabWindowSource.discoverTabs`, which reuses this id shape but
+    /// carries the *tab's* title in `title`; `item.windowTitle` holds the
+    /// actual window title for those, and is `nil` (a no-op fallback to
+    /// `item.title`) for every genuine Tier-0 item.
     func activate(item: PickerItem, in app: RunningApp) {
         guard
             let pid = resolvePID(forAppID: app.id),
             let target = Self.parseWindowItemID(item.id),
             target.pid == pid,
-            let window = axWindow(forPID: pid, matchingTitle: item.title, fallbackIndex: target.windowIndex)
+            let window = axWindow(forPID: pid, matchingTitle: item.windowTitle ?? item.title, fallbackIndex: target.windowIndex)
         else {
             activate(app: app)
             return

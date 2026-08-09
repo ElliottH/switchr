@@ -38,10 +38,23 @@ final class AXTabWindowSource: WindowSource {
     /// thread. This type has no actor affinity of its own, so that work is
     /// explicitly marshalled onto the main actor rather than left to
     /// whichever executor a nonisolated `async` call happens to land on.
+    ///
+    /// Re-resolves the *window* by title before re-resolving the *tab* within
+    /// it — the window list can reorder or lose entries between discovery
+    /// and Enter just as easily as the tab list can, same staleness risk
+    /// `AXAppSource` already guards against for Tier-0 windows. `item.windowTitle`
+    /// is the owning window's AX title, captured once at discovery time in
+    /// `discoverTabs`.
     func activate(item: PickerItem) async -> Bool {
         guard let target = Self.parseItemID(item.id) else { return false }
         return await MainActor.run {
-            guard let window = axWindow(forPID: target.pid, index: target.windowIndex) else { return false }
+            guard
+                let window = axWindow(
+                    forPID: target.pid,
+                    matchingTitle: item.windowTitle ?? "",
+                    fallbackIndex: target.windowIndex
+                )
+            else { return false }
             raiseAXWindow(window, pid: target.pid)
 
             guard let tabGroup = findTabGroup(in: window, remainingDepth: maxWalkDepth) else { return true }
@@ -111,6 +124,8 @@ final class AXTabWindowSource: WindowSource {
                 AXUIElementCopyAttributeValue(tabGroup, kAXChildrenAttribute as CFString, &childrenRef)
                 guard let tabs = childrenRef as? [AXUIElement] else { continue }
 
+                let windowTitle = axTitle(of: window)
+
                 for (tabIndex, tab) in tabs.enumerated() {
                     var titleRef: CFTypeRef?
                     AXUIElementCopyAttributeValue(tab, kAXTitleAttribute as CFString, &titleRef)
@@ -127,7 +142,7 @@ final class AXTabWindowSource: WindowSource {
                     let isSelected = (valueRef as? NSNumber)?.intValue == 1
                     let id = isSelected ? "\(pid):\(windowIndex)" : "\(pid):\(windowIndex):tab:\(tabIndex)"
 
-                    items.append(PickerItem(id: id, title: title))
+                    items.append(PickerItem(id: id, title: title, windowTitle: windowTitle))
                 }
             }
             return items
