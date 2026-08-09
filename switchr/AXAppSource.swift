@@ -93,12 +93,19 @@ final class AXAppSource: AppSource {
     /// method, every `WindowSource` in the registry has already declined the
     /// item, so this only ever needs to understand its own plain-window id
     /// shape.
+    ///
+    /// Re-resolves by title rather than trusting `windowIndex` alone — a
+    /// window can close or a new one can open ahead of it between discovery
+    /// and Enter, same staleness risk `AXTabWindowSource` already guards
+    /// against for tabs. `item.title` is this type's own Tier-0 window
+    /// title, captured at discovery time, so it's the right signal to
+    /// re-verify against.
     func activate(item: PickerItem, in app: RunningApp) {
         guard
             let pid = resolvePID(forAppID: app.id),
             let target = Self.parseWindowItemID(item.id),
             target.pid == pid,
-            let window = axWindow(forPID: pid, index: target.windowIndex)
+            let window = axWindow(forPID: pid, matchingTitle: item.title, fallbackIndex: target.windowIndex)
         else {
             activate(app: app)
             return
