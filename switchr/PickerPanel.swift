@@ -66,9 +66,14 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
         container.material = .popover
         container.blendingMode = .behindWindow
         container.state = .active
-        container.wantsLayer = true
-        container.layer?.cornerRadius = 10
-        container.layer?.masksToBounds = true
+        // maskImage, not layer.cornerRadius/masksToBounds — vibrancy is
+        // composited by the window server outside the normal CALayer path,
+        // so layer masking leaves ragged, un-clipped remnants of the
+        // material right at the rounded corners. maskImage is the API that
+        // actually participates in that compositing path. The 1pt-larger
+        // stretchable image with capInsets equal to the radius keeps the
+        // corners crisp at any size this view is resized to.
+        container.maskImage = Self.roundedMaskImage(cornerRadius: 10)
 
         // A fixed-height row so the text field can be centered *within* it —
         // pinning the field itself to a tall area top-aligns its one line of
@@ -147,6 +152,22 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
+    }
+
+    /// A stretchable rounded-rect image for `NSVisualEffectView.maskImage`.
+    /// `capInsets` equal to the radius on every side keeps the four corners
+    /// fixed while `.stretch` resizing fills the middle — the same
+    /// technique as a resizable button background image.
+    private static func roundedMaskImage(cornerRadius: CGFloat) -> NSImage {
+        let side = cornerRadius * 2 + 1
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: cornerRadius, left: cornerRadius, bottom: cornerRadius, right: cornerRadius)
+        image.resizingMode = .stretch
+        return image
     }
 
     // Borderless panels don't accept key by default — without this the text
