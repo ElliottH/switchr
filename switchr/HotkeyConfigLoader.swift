@@ -68,12 +68,7 @@ enum HotkeyConfigLoader {
         bindings.compactMap { binding in
             guard let keyCode = KeyCodeMap.keyCode(forName: binding.key) else { return nil }
             guard let modifierMask = KeyCodeMap.modifierFlags(forNames: binding.modifiers) else { return nil }
-            let scope: HotkeyScope = {
-                switch binding.scope {
-                case .global: return .global
-                case .apps(let bundleIDs): return .apps(bundleIDs)
-                }
-            }()
+            let scope = binding.scope
 
             switch scope {
             case .global:

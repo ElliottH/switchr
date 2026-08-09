@@ -1,17 +1,6 @@
 import Cocoa
 import SwitchrCore
 
-/// What a fired hotkey chord is bound to — the same shape as
-/// `HotkeyBinding.Scope`. `.apps` is resolved at press time to whichever
-/// listed bundle ID is actually running (first match in list order); a
-/// single physical chord can only ever target one app per press, so this
-/// stays one `RegisteredHotkey` per config entry rather than one per bundle
-/// ID, which would leave multiple registrations racing for the same chord.
-enum HotkeyScope: Equatable {
-    case global
-    case apps([String])
-}
-
 /// Mediates between the (dumb) `PickerPanel` view and the pure
 /// `PickerReducer`: turns panel delegate callbacks into `PickerAction`s,
 /// renders the resulting `rankedIDs` back as titles, and performs the
@@ -69,8 +58,13 @@ final class PickerController: PickerPanelDelegate {
     /// A hotkey chord firing. For `.global` this is just the existing
     /// toggle. For `.app`, the doc's "hold modifier, tap to cycle" behaviour
     /// means a *repeat* press while already scoped to that same app advances
-    /// the selection instead of re-presenting from scratch.
-    func hotkeyPressed(scope: HotkeyScope) {
+    /// the selection instead of re-presenting from scratch. `.apps` is
+    /// resolved here to whichever listed bundle ID is actually running
+    /// (first match in list order); a single physical chord can only ever
+    /// target one app per press, so this stays one `RegisteredHotkey` per
+    /// config entry rather than one per bundle ID, which would leave
+    /// multiple registrations racing for the same chord.
+    func hotkeyPressed(scope: HotkeyBinding.Scope) {
         switch scope {
         case .global:
             toggle()
@@ -89,7 +83,7 @@ final class PickerController: PickerPanelDelegate {
     /// selected, same as pressing Enter, but only if this hold actually
     /// cycled the selection. A release that follows nothing but the
     /// opening press is a no-op, leaving the picker open for typing.
-    func hotkeyReleased(scope: HotkeyScope) {
+    func hotkeyReleased(scope: HotkeyBinding.Scope) {
         guard case .apps = scope, isHotkeyHeldSession, panel.isVisible, case .scoped = state?.stage else { return }
         isHotkeyHeldSession = false
         send(.activateSelection)
