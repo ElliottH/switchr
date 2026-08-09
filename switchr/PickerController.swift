@@ -91,8 +91,7 @@ final class PickerController: PickerPanelDelegate {
 
     private func present() {
         let generation = beginNewPresentation()
-        panel.showCentered()
-        panel.setResults(titles: [], selectedIndex: 0)
+        showEmptyPanel()
         Task { [weak self] in
             guard let self else { return }
             let apps = await self.appSource.runningApps()
@@ -136,8 +135,7 @@ final class PickerController: PickerPanelDelegate {
         // the only source with no bundle ID of its own to key off instead.
         let hasTabProvider = !(windowSource(for: targetBundleID) is AXTabWindowSource)
         if hasTabProvider {
-            panel.showCentered()
-            panel.setResults(titles: [], selectedIndex: 0)
+            showEmptyPanel()
         }
 
         Task { [weak self] in
@@ -163,8 +161,7 @@ final class PickerController: PickerPanelDelegate {
             }
 
             if !self.panel.isVisible {
-                self.panel.showCentered()
-                self.panel.setResults(titles: [], selectedIndex: 0)
+                self.showEmptyPanel()
             }
             self.state = PickerState(availableApps: apps)
             if let preloadedTabs {
@@ -177,6 +174,11 @@ final class PickerController: PickerPanelDelegate {
                 self.send(.scopeToApp(entry.app))
             }
         }
+    }
+
+    private func showEmptyPanel() {
+        panel.showCentered()
+        panel.setResults(titles: [], selectedIndex: 0)
     }
 
     private func launchApp(bundleID: String) {
