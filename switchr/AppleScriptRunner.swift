@@ -16,6 +16,23 @@ import Foundation
 enum AppleScriptRunner {
     private static let timeout: TimeInterval = 2.0
 
+    /// `text item delimiters`-based replace, since AppleScript string
+    /// literals have no escape sequences for control characters — sources
+    /// that use this splice `ASCII character 31` in at runtime as their
+    /// field separator instead of embedding it as a literal byte in the
+    /// script text. Shared by every source (Chrome, iTerm2, …) that shells
+    /// out multi-field rows through `osascript`'s single-line output.
+    static let sanitizeHandler = """
+    on sanitize(txt)
+        set AppleScript's text item delimiters to {return, linefeed}
+        set txt to text items of txt
+        set AppleScript's text item delimiters to " "
+        set txt to txt as text
+        set AppleScript's text item delimiters to ""
+        return txt
+    end sanitize
+    """
+
     static func run(_ source: String) async -> String? {
         await withCheckedContinuation { continuation in
             let box = ResumeBox(continuation)

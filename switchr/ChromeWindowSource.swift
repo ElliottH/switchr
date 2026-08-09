@@ -63,23 +63,8 @@ final class ChromeWindowSource: WindowSource {
         return items
     }
 
-    // `text item delimiters`-based replace, since AppleScript string
-    // literals have no escape sequences for control characters — the field
-    // separator below is built at runtime via `ASCII character 31` instead
-    // of being embedded as a literal byte in this source string.
-    private static let sanitizeHandler = """
-    on sanitize(txt)
-        set AppleScript's text item delimiters to {return, linefeed}
-        set txt to text items of txt
-        set AppleScript's text item delimiters to " "
-        set txt to txt as text
-        set AppleScript's text item delimiters to ""
-        return txt
-    end sanitize
-    """
-
     private static let discoverySource = """
-    \(sanitizeHandler)
+    \(AppleScriptRunner.sanitizeHandler)
     set fs to ASCII character 31
     set out to ""
     tell application "Google Chrome"
