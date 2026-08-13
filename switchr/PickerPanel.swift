@@ -182,6 +182,14 @@ final class PickerPanel: NSPanel, NSTextFieldDelegate {
         pickerDelegate?.pickerPanelCancel(self)
     }
 
+    // Dismisses on focus loss (click away, Cmd-Tab, etc.), same as Escape.
+    // Also echoes from our own hidePanel() below — pickerPanelCancel handles
+    // that, so this can forward unconditionally.
+    override func resignKey() {
+        super.resignKey()
+        pickerDelegate?.pickerPanelCancel(self)
+    }
+
     func showCentered() {
         // Reset to the base (no-results) size before positioning — otherwise
         // this reopens at whatever height the previous session's result list
