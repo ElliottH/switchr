@@ -322,7 +322,15 @@ final class PickerController: PickerPanelDelegate {
         send(.activateSelection)
     }
 
+    /// Deferred, not called inline: `hidePanel()`'s `orderOut(nil)` triggers
+    /// `resignKey()` synchronously, which would reenter `dismiss()` from
+    /// inside itself. The generation check drops a stale echo if a new
+    /// session has since started.
     func pickerPanelCancel(_ panel: PickerPanel) {
-        dismiss()
+        let generation = presentationGeneration
+        Task { [weak self] in
+            guard let self, self.presentationGeneration == generation else { return }
+            self.dismiss()
+        }
     }
 }
